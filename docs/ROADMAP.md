@@ -85,17 +85,36 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 > Économie **autoritaire côté serveur** (anti-triche) ; boutique **100 % cosmétique**
 > (pas de pay-to-win). À valider sur appareil comme les phases précédentes.
 
-## Phase 4 — Contest & événements ⬜
+## Phase 4 — Contest & événements 🚧 (code-complete)
 
 **Objectif : la compétition et les événements pilotés par l'admin.**
 
-| # | Fonctionnalité         | Détail                                                                     |
-|---|------------------------|----------------------------------------------------------------------------|
-| 1 | Événements admin       | Contest, Contest Boussole, expéditions (créés par l'admin)                 |
-| 2 | Mode Contest           | Récupération de tracé adverse en passant dessus, scoring                    |
-| 3 | Objets Contest         | Bombe, Pinceau, Rouleau, Bouclier (chers → équilibre)                       |
-| 4 | Mode Boussole          | Flèche + direction + distance, **sans carte** (événement uniquement)       |
-| 5 | Contest Boussole       | Contest + Boussole : carte cachée, navigation flèche, récupération, objets  |
+| # | Fonctionnalité         | Détail                                                                     | État |
+|---|------------------------|----------------------------------------------------------------------------|------|
+| 1 | Événements admin       | Contest, Contest Boussole, expéditions (créés/lancés/terminés par l'admin) | ✅ |
+| 2 | Mode Contest           | Récupération de tracé adverse en passant dessus (corridor), scoring live   | ✅ |
+| 3 | Objets Contest         | Bombe, Pinceau, Rouleau, Bouclier — achat en coins, usage ciblé sur carte  | ✅ |
+| 4 | Mode Boussole          | Flèche (cap magnétique) + distance, **sans carte** (événement uniquement)  | ✅ |
+| 5 | Contest Boussole       | Contest + Boussole : navigation flèche, récupération passive, objets       | ✅ |
+| 6 | Classement             | Scores en direct (mètres de tracé + zones capturées), sheet dédié          | ✅ |
+
+**Livrables techniques Phase 4**
+- Migration `0011` : résolution PostGIS **côté serveur** (anti-triche) —
+  `use_contest_item` (bombe/pinceau/rouleau/bouclier), `contest_apply_area`
+  (découpe `ST_Difference`/`ST_Intersection` + transfert de portions),
+  `contest_pass_recover` (corridor), `buy_contest_item`, `recompute_event_scores`.
+- Tables `contest_inventory` (stock d'objets) et `contest_shields` (zones protégées).
+- Repository contest (événements, objets, usage, récupération, classement).
+- Écrans : événements (création/lancement admin, adhésion), boutique d'objets,
+  classement, **Mode Boussole** (flèche + distance) ; intégration Contest sur la
+  carte (bannière événement, barre d'objets à armer, appui long = usage).
+- Récupération passive branchée : fin de session en Contest + périodique en Boussole.
+
+**Règles d'équilibre respectées** : objets **chers** et **gagnés en jeu** (pas de
+pay-to-win) ; boucliers qui protègent les zones ; toute la résolution est **serveur**.
+
+> Comme les phases précédentes : **à valider sur appareil**. La logique géométrique
+> (découpe/transfert de tracés) mérite un test attentif sur données réelles.
 
 ---
 

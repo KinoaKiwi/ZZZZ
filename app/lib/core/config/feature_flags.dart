@@ -23,6 +23,6 @@ class FeatureFlags {
   static const bool companion = true;
 
   // Phase 4 — Contest & événements.
-  static const bool contest = false;
-  static const bool compass = false;
+  static const bool contest = true;
+  static const bool compass = true;
 }

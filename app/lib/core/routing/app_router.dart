@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/auth_screen.dart';
 import '../../features/chat/chat_screen.dart';
 import '../../features/companion/companion_screen.dart';
+import '../../features/contest/compass_screen.dart';
+import '../../features/contest/events_screen.dart';
 import '../../features/group/group_screen.dart';
 import '../../features/map/map_screen.dart';
 import '../../features/missions/missions_screen.dart';
@@ -57,6 +59,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/companion/:groupId',
         builder: (_, s) => CompanionScreen(groupId: s.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/events/:groupId',
+        builder: (_, s) => EventsScreen(groupId: s.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/compass/:groupId/:eventId',
+        builder: (_, s) => CompassScreen(
+          groupId: s.pathParameters['groupId']!,
+          eventId: s.pathParameters['eventId']!,
+        ),
       ),
       // Deep link d'invitation : /join?token=… (à traiter dans GroupScreen).
       GoRoute(

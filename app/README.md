@@ -59,7 +59,8 @@ lib/
     ├── economy/                  # pastille de Djadja Coins
     ├── missions/                 # missions journalières
     ├── shop/                     # boutique cosmétique
-    └── companion/                # compagnon (adoption, sortie quotidienne)
+    ├── companion/                # compagnon (adoption, sortie quotidienne)
+    └── contest/                  # événements, objets, Mode Boussole, classement
 ```
 
 ## État (Phase 1 — MVP) — code-complete

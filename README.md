@@ -70,10 +70,10 @@ Le développement suit les 4 phases du cahier des charges. Le détail est dans
 - **Phase 1 — MVP** _(code-complete)_ : groupe privé · carte · GPS · sessions · découverte · tracés
 - **Phase 2** _(code-complete)_ : photos · chat · localisation temps réel · campements
 - **Phase 3** _(code-complete)_ : Djadja Coins · boutique · missions journalières · compagnon
-- **Phase 4** : Contest · objets · Mode Boussole · événements avancés
+- **Phase 4** _(code-complete)_ : Contest · objets · Mode Boussole · événements avancés
 
-Le schéma de base de données est conçu **dès maintenant** pour supporter les 4 phases,
-mais seule la Phase 1 est implémentée côté application.
+Les **4 phases** sont implémentées côté application (feature flags par phase) et côté base
+de données. Reste la validation sur appareil réel (voir [`docs/ROADMAP.md`](docs/ROADMAP.md)).
 
 ## 🚀 Démarrage
 

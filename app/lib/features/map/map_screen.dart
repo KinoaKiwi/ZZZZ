@@ -12,6 +12,9 @@ import '../../data/models/presence.dart';
 import '../../data/repositories/camp_repository.dart';
 import '../../data/repositories/map_repository.dart';
 import '../../data/repositories/poi_repository.dart';
+import '../../data/models/contest_item.dart';
+import '../../data/models/game_event.dart';
+import '../../data/repositories/contest_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/presence_repository.dart';
 import '../economy/widgets/coin_chip.dart';
@@ -33,6 +36,9 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   MaplibreMapController? _controller;
   bool _styleReady = false;
+
+  /// Objet Contest « armé » : le prochain appui long sur la carte l'utilise.
+  ContestItem? _armedItem;
 
   static const _zonesSource = 'discovered-zones';
   static const _tracksSourcePrefix = 'track-';
@@ -96,6 +102,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
           ),
+          if (FeatureFlags.contest) _contestOverlay(),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -113,7 +120,77 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     await _reloadLayers();
   }
 
-  /// Menu « hub » : missions, boutique, compagnon, visibilité, rafraîchir.
+  /// Bannière d'événement actif + barre d'objets Contest (mode 'contest').
+  Widget _contestOverlay() {
+    final active = ref.watch(activeEventProvider(widget.groupId)).valueOrNull;
+    if (active == null) return const SizedBox.shrink();
+
+    final isContestMap = active.kind == EventKind.contest;
+    final items = ref.watch(contestItemsProvider(widget.groupId)).valueOrNull ?? [];
+    final usable = items.where((i) => i.quantity > 0).toList();
+
+    return Positioned(
+      left: 8,
+      right: 8,
+      bottom: 90,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: AppColors.neonViolet.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: () => context.go('/events/${widget.groupId}'),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    Text('${active.kind.emoji} ${active.kind.label} en cours',
+                        style: const TextStyle(
+                            color: AppColors.background, fontWeight: FontWeight.w800)),
+                    const Spacer(),
+                    if (active.kind.isCompass)
+                      const Text('Ouvrir 🧭',
+                          style: TextStyle(color: AppColors.background))
+                    else
+                      const Text('Classement',
+                          style: TextStyle(color: AppColors.background)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (isContestMap && usable.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _ContestItemBar(
+              items: usable,
+              armed: _armedItem,
+              onArm: (item) => setState(
+                () => _armedItem = _armedItem?.code == item.code ? null : item,
+              ),
+            ),
+          ],
+          if (isContestMap && _armedItem != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '${_armedItem!.emoji} armé — appui long sur la carte pour l\'utiliser',
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Menu « hub » : événements, missions, boutique, compagnon, visibilité.
   Future<void> _openHub() async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -122,6 +199,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (FeatureFlags.contest)
+              ListTile(
+                leading: const Text('⚔️', style: TextStyle(fontSize: 22)),
+                title: const Text('Événements & Contest'),
+                onTap: () => Navigator.pop(ctx, 'events'),
+              ),
             if (FeatureFlags.missions)
               ListTile(
                 leading: const Text('🎯', style: TextStyle(fontSize: 22)),
@@ -157,6 +240,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
     if (!mounted) return;
     switch (action) {
+      case 'events':
+        context.go('/events/${widget.groupId}');
+        break;
       case 'missions':
         context.go('/missions/${widget.groupId}');
         break;
@@ -175,9 +261,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  /// Appui long : ajouter un lieu/souvenir ou un campement à cet endroit.
+  /// Appui long : utiliser l'objet Contest armé, sinon ajouter un lieu ou un camp.
   Future<void> _onLongPress(LatLng latLng) async {
     final position = GeoPoint(latLng.latitude, latLng.longitude);
+
+    // Priorité : un objet Contest est armé → on l'utilise à ce point.
+    final armed = _armedItem;
+    final activeEvent = ref.read(activeEventProvider(widget.groupId)).valueOrNull;
+    if (armed != null && activeEvent != null && activeEvent.kind.isContest) {
+      try {
+        await ref.read(contestRepositoryProvider).useItem(
+              eventId: activeEvent.id,
+              code: armed.code,
+              at: position,
+            );
+        ref.invalidate(contestItemsProvider(widget.groupId));
+        setState(() => _armedItem = null);
+        await _reloadLayers();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${armed.emoji} ${armed.name} utilisé')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        }
+      }
+      return;
+    }
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppColors.surface,
@@ -376,6 +488,55 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
     await controller.removeSource(id).catchError((_) {});
     await controller.addGeoJsonSource(id, data);
+  }
+}
+
+/// Barre d'objets Contest à armer (bombe, pinceau, rouleau, bouclier).
+class _ContestItemBar extends StatelessWidget {
+  const _ContestItemBar({
+    required this.items,
+    required this.armed,
+    required this.onArm,
+  });
+
+  final List<ContestItem> items;
+  final ContestItem? armed;
+  final void Function(ContestItem) onArm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final item in items)
+            GestureDetector(
+              onTap: () => onArm(item),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: armed?.code == item.code
+                      ? AppColors.neonViolet.withOpacity(0.3)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: armed?.code == item.code
+                        ? AppColors.neonViolet
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Text('${item.emoji} ×${item.quantity}',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

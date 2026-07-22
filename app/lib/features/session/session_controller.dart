@@ -9,7 +9,9 @@ import '../../core/location/step_service.dart';
 import '../../core/config/feature_flags.dart';
 import '../../data/models/exploration_session.dart';
 import '../../data/models/geo_point.dart';
+import '../../data/models/game_event.dart';
 import '../../data/models/presence.dart';
+import '../../data/repositories/contest_repository.dart';
 import '../../data/repositories/economy_repository.dart';
 import '../../data/repositories/presence_repository.dart';
 import '../../data/repositories/session_repository.dart';
@@ -197,6 +199,15 @@ class SessionController extends StateNotifier<SessionState> {
         await economy.recordActivity('walk', state.distanceM.round());
         if (state.points.length >= 2) {
           await economy.recordActivity('explore', 1);
+        }
+      }
+
+      // Phase 4 : en Contest actif, passer sur les tracés adverses les récupère.
+      if (FeatureFlags.contest && state.points.length >= 2) {
+        final contest = _ref.read(contestRepositoryProvider);
+        final active = await contest.activeEventOnce(_groupId);
+        if (active != null && active.kind == EventKind.contest) {
+          await contest.passRecover(active.id, GeoLine(state.points));
         }
       }
 

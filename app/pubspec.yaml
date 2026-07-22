@@ -35,6 +35,9 @@ dependencies:
   # --- Photos (POI, chat, souvenirs de session) ---
   image_picker: ^1.1.2
 
+  # --- Mode Boussole (cap magnétique, navigation à la flèche) ---
+  flutter_compass: ^0.8.1
+
   # --- Compteur de pas (natif : HealthKit / Health Connect) ---
   pedometer: ^4.0.2
   health: ^10.2.0

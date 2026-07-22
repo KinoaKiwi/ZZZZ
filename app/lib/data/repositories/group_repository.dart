@@ -58,6 +58,19 @@ class GroupRepository {
     return result;
   }
 
+  /// Indique si l'utilisateur courant est administrateur du groupe.
+  Future<bool> isAdmin(String groupId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return false;
+    final row = await _client
+        .from('group_members')
+        .select('role')
+        .eq('group_id', groupId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    return row?['role'] == 'admin';
+  }
+
   /// Crée un lien d'invitation et renvoie le deep link `gayeulle://join?token=…`.
   Future<String> createInviteLink(String groupId) async {
     final userId = _client.auth.currentUser!.id;
@@ -90,4 +103,10 @@ final myGroupsProvider = FutureProvider<List<Group>>((ref) {
 final groupProfilesProvider =
     FutureProvider.family<Map<String, Profile>, String>((ref, groupId) {
   return ref.watch(groupRepositoryProvider).memberProfiles(groupId);
+});
+
+/// Vrai si l'utilisateur courant est admin (👑) du groupe.
+final isGroupAdminProvider =
+    FutureProvider.family<bool, String>((ref, groupId) {
+  return ref.watch(groupRepositoryProvider).isAdmin(groupId);
 });
