@@ -1,0 +1,56 @@
+name: gayeulle_party
+description: "Gayeulle Party — jeu d'exploration GPS privé entre amis."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- State management & DI ---
+  flutter_riverpod: ^2.5.1
+
+  # --- Navigation (deep links pour les liens d'invitation) ---
+  go_router: ^14.2.0
+
+  # --- Backend (Auth, Postgres/PostGIS, Storage, Realtime) ---
+  supabase_flutter: ^2.5.6
+
+  # --- Carte (MapLibre GL + tuiles OpenStreetMap) ---
+  maplibre_gl: ^0.20.0
+
+  # --- Localisation & sessions en arrière-plan ---
+  geolocator: ^12.0.0
+  flutter_foreground_task: ^8.0.0
+  permission_handler: ^11.3.1
+
+  # --- Compteur de pas (natif : HealthKit / Health Connect) ---
+  pedometer: ^4.0.2
+  health: ^10.2.0
+
+  # --- Utilitaires ---
+  shared_preferences: ^2.2.3
+  intl: ^0.19.0
+  flutter_dotenv: ^5.1.0
+  uuid: ^4.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+    - assets/map/
+    # - assets/pixel/        # skins, tuiles pixel-art, effets (Phase 3+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Note : les versions ci-dessus sont indicatives (cutoff début 2026). Lancer
+# `flutter pub get` puis, si besoin, `flutter pub upgrade --major-versions`.
+# ─────────────────────────────────────────────────────────────────────────────
