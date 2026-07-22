@@ -77,8 +77,10 @@ mais seule la Phase 1 est implémentée côté application.
 
 ## 🚀 Démarrage
 
-> ⚠️ Ce dépôt fournit le **squelette de projet** et le **schéma de données**. Il ne compile pas
-> encore une application complète : l'implémentation suit la roadmap ci-dessus.
+> ⚠️ La **Phase 1 (MVP)** est **code-complete** (auth, groupes, carte, sessions GPS, tracés,
+> découverte, deep links). Les Phases 2→4 suivent la roadmap. Le schéma de données couvre déjà
+> les 4 phases. L'app n'a pas pu être compilée dans l'environnement de génération — à builder
+> via `tools/bootstrap.sh` et valider sur appareil.
 
 ### 1. Backend (Supabase / PostGIS)
 
@@ -93,14 +95,21 @@ Voir [`backend/supabase/README.md`](backend/supabase/README.md).
 
 ### 2. Application (Flutter)
 
+Une commande génère les projets natifs iOS/Android, applique la config (permissions,
+background location, deep links) et installe les dépendances :
+
 ```bash
+./tools/bootstrap.sh        # nécessite Flutter installé
 cd app
-cp .env.example .env        # renseigner SUPABASE_URL et SUPABASE_ANON_KEY
-flutter pub get
+# renseigner SUPABASE_URL et SUPABASE_ANON_KEY dans app/.env
 flutter run
 ```
 
 Voir [`app/README.md`](app/README.md).
+
+> ℹ️ **Phase 1 code-complete.** L'app est prête à compiler mais n'a pas pu être testée
+> dans l'environnement de génération (pas de SDK Flutter). À valider sur un appareil réel
+> après `bootstrap.sh` — voir [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## 📚 Documentation
 

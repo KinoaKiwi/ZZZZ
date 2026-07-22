@@ -15,20 +15,28 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 
 | # | Fonctionnalité                    | Détail                                                                 | État |
 |---|-----------------------------------|------------------------------------------------------------------------|------|
-| 1 | Authentification                  | Connexion Supabase (email/OTP), session persistante                    | ⬜   |
-| 2 | Groupe privé                      | Création (1er user = admin 👑 Le Kyk's), lien d'invitation, membres    | ⬜   |
-| 3 | Carte commune                     | MapLibre, style sombre pixel, brouillard d'exploration                 | ⬜   |
-| 4 | Permissions & GPS                 | Localisation « always », service background                            | ⬜   |
-| 5 | Session d'exploration             | Start/stop, GPS + pas + distance + durée, veille/écran verrouillé      | ⬜   |
-| 6 | Tracé                             | Enregistrement du tracé coloré, propriétaire, longueur PostGIS         | ⬜   |
-| 7 | Découverte                        | Buffer autour du tracé → zone révélée commune au groupe                | ⬜   |
-| 8 | Résumé de session                 | km · pas · durée · nouvelles zones (photos en Phase 2)                  | ⬜   |
+| 1 | Authentification                  | Connexion Supabase (email/OTP), session persistante                    | ✅   |
+| 2 | Groupe privé                      | Création (1er user = admin 👑 Le Kyk's), lien d'invitation, membres    | ✅   |
+| 3 | Carte commune                     | MapLibre, style sombre, brouillard, zones & tracés chargés             | ✅   |
+| 4 | Permissions & GPS                 | Localisation « always », foreground service Android / background iOS   | ✅   |
+| 5 | Session d'exploration             | Start/stop, GPS + pas + distance + durée, veille/écran verrouillé      | ✅   |
+| 6 | Tracé                             | Enregistrement du tracé coloré, propriétaire, longueur PostGIS         | ✅   |
+| 7 | Découverte                        | Buffer autour du tracé → zone révélée commune au groupe                | ✅   |
+| 8 | Résumé de session                 | km · pas · durée · nouvelles zones (photos en Phase 2)                  | ✅   |
+| 9 | Deep link d'invitation            | `gayeulle://join?token=…` → adhésion automatique                       | ✅   |
 
 **Livrables techniques Phase 1**
 - Schéma SQL Phase 1 (`profiles`, `groups`, `group_members`, `group_invites`,
-  `exploration_sessions`, `tracks`, `discovered_zones`) + RLS. ✅ (migrations posées)
+  `exploration_sessions`, `tracks`, `discovered_zones`) + RLS. ✅
 - Scaffold Flutter : thème, routing, client Supabase, modèles, services location/pas. ✅
-- Écrans : Auth, Groupe (créer/rejoindre), Carte, Session (live + résumé). 🚧
+- Écrans : Auth, Groupe (créer/rejoindre), Carte, Session (live + résumé). ✅
+- Config native (permissions, background location, deep links) via `tools/bootstrap.sh`. ✅
+- Suivi GPS en arrière-plan (foreground service Android + background mode iOS). ✅
+
+> **Code-complete, à valider sur appareil.** L'app n'a pas pu être compilée/testée
+> dans l'environnement de génération (pas de SDK Flutter). Lancer `tools/bootstrap.sh`
+> sur une machine avec Flutter, puis `flutter run`, et valider sur un téléphone réel
+> (permissions, précision GPS, comptage de pas, rendu de carte).
 
 ## Phase 2 — Vie du groupe ⬜
 

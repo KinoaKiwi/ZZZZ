@@ -8,11 +8,49 @@ import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/group_repository.dart';
 
 /// Écran des groupes privés : liste, création (👑 admin), adhésion par lien.
-class GroupScreen extends ConsumerWidget {
-  const GroupScreen({super.key});
+///
+/// Si [inviteToken] est fourni (via un deep link `gayeulle://join?token=…`),
+/// l'adhésion au groupe est tentée automatiquement au premier affichage.
+class GroupScreen extends ConsumerStatefulWidget {
+  const GroupScreen({super.key, this.inviteToken});
+
+  final String? inviteToken;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GroupScreen> createState() => _GroupScreenState();
+}
+
+class _GroupScreenState extends ConsumerState<GroupScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final token = widget.inviteToken;
+    if (token != null && token.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoJoin(token));
+    }
+  }
+
+  Future<void> _autoJoin(String token) async {
+    try {
+      final group = await ref.read(groupRepositoryProvider).joinWithToken(token);
+      ref.invalidate(myGroupsProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Tu as rejoint « ${group.name} » 🎉')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lien d\'invitation invalide : $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final groups = ref.watch(myGroupsProvider);
 
     return Scaffold(

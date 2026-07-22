@@ -26,7 +26,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/auth', builder: (_, __) => const AuthScreen()),
-      GoRoute(path: '/groups', builder: (_, __) => const GroupScreen()),
+      GoRoute(
+        path: '/groups',
+        builder: (_, s) => GroupScreen(inviteToken: s.uri.queryParameters['token']),
+      ),
       GoRoute(
         path: '/map/:groupId',
         builder: (_, s) => MapScreen(groupId: s.pathParameters['groupId']!),

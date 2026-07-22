@@ -16,8 +16,15 @@ cp .env.example .env
 
 ## Lancer
 
+Depuis la racine du dépôt, la première fois (génère les projets natifs + config) :
+
 ```bash
-flutter pub get
+../tools/bootstrap.sh     # flutter create + permissions + background + deep links
+```
+
+Puis, à chaque fois :
+
+```bash
 flutter run
 ```
 
@@ -49,24 +56,29 @@ lib/
     └── session/                  # session d'exploration (live + résumé)
 ```
 
-## État (Phase 1 — MVP)
+## État (Phase 1 — MVP) — code-complete
 
-Implémenté : squelette d'auth, groupes (RPC create/join), carte MapLibre avec
-chargement des tracés & zones, contrôleur de session (GPS + pas + distance +
-durée + tracé) et clôture serveur avec révélation de zone.
+Implémenté : auth (OTP), groupes (RPC create/join + deep link d'invitation), carte
+MapLibre avec chargement des tracés & zones, contrôleur de session (GPS + pas +
+distance + durée + tracé), suivi **en arrière-plan** (foreground service Android /
+background mode iOS) et clôture serveur avec révélation de zone.
 
-À compléter avant démo : configuration des permissions natives (iOS `Info.plist`,
-Android `AndroidManifest.xml`), foreground service pour le suivi en arrière-plan,
-style de carte sombre pixel-art, gestion fine des deep links d'invitation.
+Config native (permissions, background location, schéma `gayeulle://`) appliquée
+automatiquement par [`../tools/bootstrap.sh`](../tools/bootstrap.sh).
 
-## Permissions natives à déclarer
+> ⚠️ Non testé en environnement de génération (pas de SDK Flutter). À valider sur un
+> appareil réel : précision GPS, comptage de pas, rendu de carte, permissions
+> « always », continuation écran verrouillé.
+
+## Permissions natives (appliquées par bootstrap.sh)
 
 - **iOS** (`ios/Runner/Info.plist`) : `NSLocationWhenInUseUsageDescription`,
   `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSMotionUsageDescription`,
-  background modes `location`.
+  `UIBackgroundModes = [location]`, `CFBundleURLTypes` (schéma `gayeulle`).
 - **Android** (`android/app/src/main/AndroidManifest.xml`) :
   `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`,
-  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`.
+  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`,
+  + intent-filter deep link `gayeulle://`.
 
 ## Tests
 

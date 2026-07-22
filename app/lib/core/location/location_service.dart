@@ -1,13 +1,14 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:geolocator/geolocator.dart';
 
 /// Service de localisation basé sur `geolocator`.
 ///
-/// Gère les permissions et expose un flux de positions pendant une session
-/// d'exploration. Le suivi en arrière-plan (écran verrouillé / veille) est
-/// assuré par un foreground service (Android) et les background modes (iOS) —
-/// voir docs/ARCHITECTURE.md §2.4.
+/// Gère les permissions et expose un flux de positions pendant une session.
+/// Le suivi **en arrière-plan** (écran verrouillé / veille) est assuré nativement :
+/// - Android : foreground service via `foregroundNotificationConfig` ;
+/// - iOS : `allowBackgroundLocationUpdates` (background mode `location`).
 class LocationService {
   /// Demande la permission de localisation « always » requise pour les sessions
   /// en arrière-plan. Retourne true si accordée.
@@ -34,15 +35,44 @@ class LocationService {
     );
   }
 
-  /// Flux de positions pour le suivi d'une session.
+  /// Flux de positions pour le suivi d'une session, avec continuation en
+  /// arrière-plan selon la plateforme.
   ///
   /// [distanceFilterM] : distance minimale (mètres) entre deux mises à jour.
   Stream<Position> positionStream({double distanceFilterM = 5}) {
     return Geolocator.getPositionStream(
-      locationSettings: LocationSettings(
+      locationSettings: _backgroundSettings(distanceFilterM.round()),
+    );
+  }
+
+  LocationSettings _backgroundSettings(int distanceFilter) {
+    if (Platform.isAndroid) {
+      return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: distanceFilterM.round(),
-      ),
+        distanceFilter: distanceFilter,
+        forceLocationManager: false,
+        // Foreground service : garde le suivi actif écran verrouillé / en veille.
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'Session Gayeulle Party',
+          notificationText: 'Exploration en cours…',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    if (Platform.isIOS || Platform.isMacOS) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: distanceFilter,
+        activityType: ActivityType.fitness,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
+        pauseLocationUpdatesAutomatically: false,
+      );
+    }
+    return LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: distanceFilter,
     );
   }
 
