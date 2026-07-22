@@ -6,9 +6,11 @@ import 'package:geolocator/geolocator.dart';
 import '../../core/config/constants.dart';
 import '../../core/location/location_service.dart';
 import '../../core/location/step_service.dart';
+import '../../core/config/feature_flags.dart';
 import '../../data/models/exploration_session.dart';
 import '../../data/models/geo_point.dart';
 import '../../data/models/presence.dart';
+import '../../data/repositories/economy_repository.dart';
 import '../../data/repositories/presence_repository.dart';
 import '../../data/repositories/session_repository.dart';
 
@@ -188,6 +190,15 @@ class SessionController extends StateNotifier<SessionState> {
         steps: state.steps,
         durationS: state.elapsed.inSeconds,
       );
+
+      // Phase 3 : fait avancer les missions du jour (marche + exploration).
+      if (FeatureFlags.missions) {
+        final economy = _ref.read(economyRepositoryProvider);
+        await economy.recordActivity('walk', state.distanceM.round());
+        if (state.points.length >= 2) {
+          await economy.recordActivity('explore', 1);
+        }
+      }
 
       state = state.copyWith(phase: SessionPhase.finished, summary: summary);
     } catch (e) {

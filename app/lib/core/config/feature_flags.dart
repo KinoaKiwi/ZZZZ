@@ -17,10 +17,10 @@ class FeatureFlags {
   static const bool camps = true;
 
   // Phase 3 — économie & progression.
-  static const bool economy = false;
-  static const bool shop = false;
-  static const bool missions = false;
-  static const bool companion = false;
+  static const bool economy = true;
+  static const bool shop = true;
+  static const bool missions = true;
+  static const bool companion = true;
 
   // Phase 4 — Contest & événements.
   static const bool contest = false;

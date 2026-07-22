@@ -55,7 +55,11 @@ lib/
     ├── map/                      # carte commune (brouillard, zones, tracés, amis, camps)
     ├── session/                  # session d'exploration (live + résumé + photos)
     ├── chat/                     # chat de groupe temps réel (texte, photos)
-    └── places/                   # points d'intérêt / souvenirs géolocalisés
+    ├── places/                   # points d'intérêt / souvenirs géolocalisés
+    ├── economy/                  # pastille de Djadja Coins
+    ├── missions/                 # missions journalières
+    ├── shop/                     # boutique cosmétique
+    └── companion/                # compagnon (adoption, sortie quotidienne)
 ```
 
 ## État (Phase 1 — MVP) — code-complete

@@ -20,9 +20,9 @@ insert into shop_items (category, name, price, metadata) values
 on conflict do nothing;
 
 -- --- Missions du jour --------------------------------------------------------
-insert into daily_missions (code, title, goal, reward, for_date) values
-  ('walk_2km',      'Marcher 2 km',                 2000, 100, current_date),
-  ('explore_zone',  'Révéler une nouvelle zone',       1, 150, current_date),
-  ('take_photo',    'Ajouter une photo souvenir',      1,  50, current_date),
-  ('use_companion', 'Envoyer ton compagnon explorer',  1,  50, current_date)
+insert into daily_missions (code, title, category, goal, reward, for_date) values
+  ('walk_2km',      'Marcher 2 km',                   'walk',      2000, 100, current_date),
+  ('explore_zone',  'Révéler une nouvelle zone',      'explore',      1, 150, current_date),
+  ('take_photo',    'Ajouter une photo souvenir',     'photo',        1,  50, current_date),
+  ('use_companion', 'Envoyer ton compagnon explorer', 'companion',    1,  50, current_date)
 on conflict (code, for_date) do nothing;

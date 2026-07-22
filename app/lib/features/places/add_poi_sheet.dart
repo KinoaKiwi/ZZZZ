@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/config/feature_flags.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/models/geo_point.dart';
 import '../../data/models/poi.dart';
+import '../../data/repositories/economy_repository.dart';
 import '../../data/repositories/poi_repository.dart';
 
 /// Fiche de création d'un point d'intérêt (photo / lieu / souvenir) à une
@@ -72,6 +74,10 @@ class _AddPoiSheetState extends ConsumerState<AddPoiSheet> {
             title: _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
             images: _images,
           );
+      // Phase 3 : une photo/POI fait avancer la mission « photo ».
+      if (FeatureFlags.missions && _images.isNotEmpty) {
+        await ref.read(economyRepositoryProvider).recordActivity('photo', 1);
+      }
       ref.invalidate(poisProvider(widget.groupId));
       if (mounted) Navigator.pop(context, true);
     } catch (e) {

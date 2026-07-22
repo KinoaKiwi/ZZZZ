@@ -62,16 +62,28 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 > Comme la Phase 1 : **à valider sur appareil** (pas de SDK Flutter dans
 > l'environnement de génération).
 
-## Phase 3 — Économie & progression ⬜
+## Phase 3 — Économie & progression 🚧 (code-complete)
 
 **Objectif : progresser et se récompenser (sans pay-to-win).**
 
-| # | Fonctionnalité         | Détail                                                                |
-|---|------------------------|-----------------------------------------------------------------------|
-| 1 | Djadja Coins           | Portefeuille + transactions serveur (crédit/débit atomique)           |
-| 2 | Missions journalières  | marcher / explorer / photos / compagnon → récompenses                 |
-| 3 | Boutique               | Cosmétique uniquement : skins, vêtements, compagnons, camps, effets   |
-| 4 | Compagnon              | Niche, sortie **1×/jour**, révèle ~100 m, revient dormir              |
+| # | Fonctionnalité         | Détail                                                                | État |
+|---|------------------------|-----------------------------------------------------------------------|------|
+| 1 | Djadja Coins           | Portefeuille + transactions serveur (crédit/débit atomique), solde live | ✅ |
+| 2 | Missions journalières  | marcher / explorer / photos / compagnon → avancement auto + réclamation | ✅ |
+| 3 | Boutique               | Cosmétique uniquement : skins, vêtements, compagnons, camps, effets   | ✅ |
+| 4 | Compagnon              | Adoption, niche, sortie **1×/jour**, révèle ~100 m, bonus de coins    | ✅ |
+
+**Livrables techniques Phase 3**
+- Migration `0010` : `ensure_daily_missions`, `record_activity`, `claim_mission`,
+  `get_or_create_companion`, `companion_daily_run` (toutes `SECURITY DEFINER`). ✅
+- Repositories : economy (solde live + activités), shop, missions, companion. ✅
+- Écrans : missions (barres d'avancement + réclamation), boutique (par catégorie),
+  compagnon (adoption + sortie quotidienne), pastille de coins + hub sur la carte. ✅
+- Avancement des missions branché : marche & exploration (fin de session),
+  photos (POI/session), compagnon (sortie). ✅
+
+> Économie **autoritaire côté serveur** (anti-triche) ; boutique **100 % cosmétique**
+> (pas de pay-to-win). À valider sur appareil comme les phases précédentes.
 
 ## Phase 4 — Contest & événements ⬜
 

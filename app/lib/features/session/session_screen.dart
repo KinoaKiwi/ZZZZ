@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/config/feature_flags.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/economy_repository.dart';
 import '../../data/repositories/session_repository.dart';
 import 'session_controller.dart';
 
@@ -174,6 +175,9 @@ class _SummaryView extends ConsumerWidget {
                         groupId: s.groupId,
                         image: File(picked.path),
                       );
+                  if (FeatureFlags.missions) {
+                    await ref.read(economyRepositoryProvider).recordActivity('photo', 1);
+                  }
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Photo ajoutée au souvenir 📷')),

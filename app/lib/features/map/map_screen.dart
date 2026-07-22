@@ -14,6 +14,7 @@ import '../../data/repositories/map_repository.dart';
 import '../../data/repositories/poi_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/presence_repository.dart';
+import '../economy/widgets/coin_chip.dart';
 import '../places/add_poi_sheet.dart';
 import 'widgets/camp_sheet.dart';
 import 'widgets/visibility_sheet.dart';
@@ -81,20 +82,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     icon: Icons.arrow_back,
                     onTap: () => context.go('/groups'),
                   ),
-                  const Spacer(),
-                  if (FeatureFlags.realtime)
-                    _RoundButton(
-                      icon: Icons.visibility,
-                      onTap: () => VisibilitySheet.show(context, groupId: widget.groupId),
-                    ),
                   const SizedBox(width: 8),
+                  if (FeatureFlags.economy) CoinChip(groupId: widget.groupId),
+                  const Spacer(),
                   if (FeatureFlags.chat)
                     _RoundButton(
                       icon: Icons.chat_bubble_outline,
                       onTap: () => context.go('/chat/${widget.groupId}'),
                     ),
                   const SizedBox(width: 8),
-                  _RoundButton(icon: Icons.refresh, onTap: _reloadLayers),
+                  _RoundButton(icon: Icons.grid_view_rounded, onTap: _openHub),
                 ],
               ),
             ),
@@ -114,6 +111,68 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _onStyleLoaded() async {
     _styleReady = true;
     await _reloadLayers();
+  }
+
+  /// Menu « hub » : missions, boutique, compagnon, visibilité, rafraîchir.
+  Future<void> _openHub() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (FeatureFlags.missions)
+              ListTile(
+                leading: const Text('🎯', style: TextStyle(fontSize: 22)),
+                title: const Text('Missions du jour'),
+                onTap: () => Navigator.pop(ctx, 'missions'),
+              ),
+            if (FeatureFlags.shop)
+              ListTile(
+                leading: const Text('🛒', style: TextStyle(fontSize: 22)),
+                title: const Text('Boutique'),
+                onTap: () => Navigator.pop(ctx, 'shop'),
+              ),
+            if (FeatureFlags.companion)
+              ListTile(
+                leading: const Text('🐾', style: TextStyle(fontSize: 22)),
+                title: const Text('Mon compagnon'),
+                onTap: () => Navigator.pop(ctx, 'companion'),
+              ),
+            if (FeatureFlags.realtime)
+              ListTile(
+                leading: const Text('👁️', style: TextStyle(fontSize: 22)),
+                title: const Text('Ma visibilité'),
+                onTap: () => Navigator.pop(ctx, 'visibility'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.refresh, color: AppColors.textPrimary),
+              title: const Text('Rafraîchir la carte'),
+              onTap: () => Navigator.pop(ctx, 'refresh'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'missions':
+        context.go('/missions/${widget.groupId}');
+        break;
+      case 'shop':
+        context.go('/shop/${widget.groupId}');
+        break;
+      case 'companion':
+        context.go('/companion/${widget.groupId}');
+        break;
+      case 'visibility':
+        VisibilitySheet.show(context, groupId: widget.groupId);
+        break;
+      case 'refresh':
+        _reloadLayers();
+        break;
+    }
   }
 
   /// Appui long : ajouter un lieu/souvenir ou un campement à cet endroit.
