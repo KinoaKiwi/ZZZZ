@@ -8,6 +8,8 @@ import '../../core/location/location_service.dart';
 import '../../core/location/step_service.dart';
 import '../../data/models/exploration_session.dart';
 import '../../data/models/geo_point.dart';
+import '../../data/models/presence.dart';
+import '../../data/repositories/presence_repository.dart';
 import '../../data/repositories/session_repository.dart';
 
 /// Phase d'une session côté UI.
@@ -93,6 +95,11 @@ class SessionController extends StateNotifier<SessionState> {
       _color = color;
       _groupId = groupId;
 
+      // Localisation temps réel : pendant une session, la position est partagée
+      // sauf si le joueur est en mode « invisible ».
+      _visibility =
+          await _ref.read(presenceRepositoryProvider).myVisibility(groupId);
+
       state = SessionState(phase: SessionPhase.running, session: session);
 
       _steps.start();
@@ -112,9 +119,13 @@ class SessionController extends StateNotifier<SessionState> {
 
   late String _color;
   late String _groupId;
+  PresenceVisibility _visibility = PresenceVisibility.sessionOnly;
+  DateTime _lastPresencePush = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Ajoute un point GPS au tracé, avec filtrage (précision, distance, vitesse).
   void _onPosition(Position pos) {
+    _publishPresence(pos);
+
     if (pos.accuracy > GameConstants.maxAcceptableAccuracyM) return;
 
     final point = GeoPoint(pos.latitude, pos.longitude);
@@ -133,6 +144,21 @@ class SessionController extends StateNotifier<SessionState> {
 
     points.add(point);
     state = state.copyWith(points: points);
+  }
+
+  /// Publie la position live (throttlée à ~10 s) si la visibilité l'autorise.
+  void _publishPresence(Position pos) {
+    if (_visibility == PresenceVisibility.invisible) return;
+    final now = DateTime.now();
+    if (now.difference(_lastPresencePush).inSeconds < 10) return;
+    _lastPresencePush = now;
+
+    // Fire-and-forget : la présence est du confort, pas une donnée critique.
+    _ref.read(presenceRepositoryProvider).publish(
+          groupId: _groupId,
+          position: GeoPoint(pos.latitude, pos.longitude),
+          heading: pos.heading.isFinite ? pos.heading : null,
+        );
   }
 
   /// Arrête la session : sauvegarde le tracé et clôture côté serveur.

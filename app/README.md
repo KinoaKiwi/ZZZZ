@@ -52,8 +52,10 @@ lib/
 └── features/
     ├── auth/                     # connexion par code email (OTP)
     ├── group/                    # groupes privés (créer / rejoindre par lien)
-    ├── map/                      # carte commune (brouillard, zones, tracés)
-    └── session/                  # session d'exploration (live + résumé)
+    ├── map/                      # carte commune (brouillard, zones, tracés, amis, camps)
+    ├── session/                  # session d'exploration (live + résumé + photos)
+    ├── chat/                     # chat de groupe temps réel (texte, photos)
+    └── places/                   # points d'intérêt / souvenirs géolocalisés
 ```
 
 ## État (Phase 1 — MVP) — code-complete

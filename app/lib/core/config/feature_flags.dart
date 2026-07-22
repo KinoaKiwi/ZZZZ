@@ -11,10 +11,10 @@ class FeatureFlags {
   static const bool map = true;
 
   // Phase 2 — vie du groupe.
-  static const bool photos = false;
-  static const bool chat = false;
-  static const bool realtime = false;
-  static const bool camps = false;
+  static const bool photos = true;
+  static const bool chat = true;
+  static const bool realtime = true;
+  static const bool camps = true;
 
   // Phase 3 — économie & progression.
   static const bool economy = false;

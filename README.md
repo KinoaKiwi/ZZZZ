@@ -67,8 +67,8 @@ Le détail des choix et des alternatives est dans [`docs/ARCHITECTURE.md`](docs/
 Le développement suit les 4 phases du cahier des charges. Le détail est dans
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-- **Phase 1 — MVP** _(en cours)_ : groupe privé · carte · GPS · sessions · découverte · tracés
-- **Phase 2** : photos · chat · localisation temps réel · campements
+- **Phase 1 — MVP** _(code-complete)_ : groupe privé · carte · GPS · sessions · découverte · tracés
+- **Phase 2** _(code-complete)_ : photos · chat · localisation temps réel · campements
 - **Phase 3** : Djadja Coins · boutique · missions journalières · compagnon
 - **Phase 4** : Contest · objets · Mode Boussole · événements avancés
 

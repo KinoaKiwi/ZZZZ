@@ -144,6 +144,14 @@ create policy camps_insert on camps for insert with check (
     or (kind = 'group' and is_group_admin(group_id))
   )
 );
+drop policy if exists camps_update on camps;
+create policy camps_update on camps for update
+  using (
+    (kind = 'personal' and owner_id = auth.uid())
+    or (kind = 'group' and is_group_admin(group_id))
+  )
+  with check (is_group_member(group_id));
+
 drop policy if exists camps_delete on camps;
 create policy camps_delete on camps for delete using (
   (kind = 'personal' and owner_id = auth.uid()) or is_group_admin(group_id)

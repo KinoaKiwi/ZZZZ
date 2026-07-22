@@ -25,6 +25,10 @@ set_string "NSLocationAlwaysAndWhenInUseUsageDescription" \
   "Gayeulle Party continue de suivre ta session même écran verrouillé pour ne rien perdre de ton tracé."
 set_string "NSMotionUsageDescription" \
   "Gayeulle Party compte tes pas pendant une session d'exploration."
+set_string "NSCameraUsageDescription" \
+  "Gayeulle Party utilise l'appareil photo pour épingler des souvenirs sur la carte."
+set_string "NSPhotoLibraryUsageDescription" \
+  "Gayeulle Party accède à tes photos pour les partager avec ton groupe."
 
 # ── Background mode : location ──
 if ! $PB -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1; then

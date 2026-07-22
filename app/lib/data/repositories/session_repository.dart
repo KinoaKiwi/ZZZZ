@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/supabase/supabase_providers.dart';
 import '../models/exploration_session.dart';
@@ -59,6 +62,21 @@ class SessionRepository {
     });
     final row = data is List ? data.first as Map<String, dynamic> : data as Map<String, dynamic>;
     return ExplorationSession.fromMap(row);
+  }
+
+  /// Attache une photo souvenir à une session (bucket `session-photos`).
+  Future<void> addPhoto({
+    required String sessionId,
+    required String groupId,
+    required File image,
+  }) async {
+    final path = '$groupId/$sessionId/${const Uuid().v4()}.jpg';
+    await _client.storage.from('session-photos').upload(path, image);
+    await _client.from('session_photos').insert({
+      'session_id': sessionId,
+      'group_id': groupId,
+      'storage_path': path,
+    });
   }
 }
 

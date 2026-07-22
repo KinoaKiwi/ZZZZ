@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase/supabase_providers.dart';
 import '../models/group.dart';
+import '../models/profile.dart';
 
 /// Gestion des groupes privés : création (admin), adhésion par lien, membres.
 class GroupRepository {
@@ -40,6 +41,23 @@ class GroupRepository {
     return (rows as List).map((r) => GroupMember.fromMap(r as Map<String, dynamic>)).toList();
   }
 
+  /// Profils des membres d'un groupe, indexés par id (pour le chat, la carte…).
+  Future<Map<String, Profile>> memberProfiles(String groupId) async {
+    final rows = await _client
+        .from('group_members')
+        .select('user_id, profiles(id, display_name, avatar_key, color)')
+        .eq('group_id', groupId);
+    final result = <String, Profile>{};
+    for (final row in rows as List) {
+      final data = (row as Map)['profiles'];
+      if (data is Map<String, dynamic>) {
+        final profile = Profile.fromMap(data);
+        result[profile.id] = profile;
+      }
+    }
+    return result;
+  }
+
   /// Crée un lien d'invitation et renvoie le deep link `gayeulle://join?token=…`.
   Future<String> createInviteLink(String groupId) async {
     final userId = _client.auth.currentUser!.id;
@@ -66,4 +84,10 @@ final groupRepositoryProvider = Provider<GroupRepository>((ref) {
 /// Liste des groupes de l'utilisateur (rafraîchie à la demande).
 final myGroupsProvider = FutureProvider<List<Group>>((ref) {
   return ref.watch(groupRepositoryProvider).myGroups();
+});
+
+/// Profils des membres d'un groupe, indexés par id utilisateur.
+final groupProfilesProvider =
+    FutureProvider.family<Map<String, Profile>, String>((ref, groupId) {
+  return ref.watch(groupRepositoryProvider).memberProfiles(groupId);
 });

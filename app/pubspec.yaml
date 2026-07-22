@@ -32,6 +32,9 @@ dependencies:
   # --- Deep links (liens d'invitation gayeulle://join?token=…) ---
   app_links: ^6.1.1
 
+  # --- Photos (POI, chat, souvenirs de session) ---
+  image_picker: ^1.1.2
+
   # --- Compteur de pas (natif : HealthKit / Health Connect) ---
   pedometer: ^4.0.2
   health: ^10.2.0

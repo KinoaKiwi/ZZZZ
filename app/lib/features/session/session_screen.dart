@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../core/config/feature_flags.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/session_repository.dart';
 import 'session_controller.dart';
 
 /// Écran d'une session d'exploration : démarrage, stats en direct, résumé.
@@ -151,6 +156,31 @@ class _SummaryView extends ConsumerWidget {
             if (state.error != null) ...[
               const SizedBox(height: 12),
               Text(state.error!, style: const TextStyle(color: AppColors.danger)),
+            ],
+            if (FeatureFlags.photos && s != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add_a_photo),
+                label: const Text('Ajouter une photo souvenir'),
+                onPressed: () async {
+                  final picked = await ImagePicker().pickImage(
+                    source: ImageSource.gallery,
+                    maxWidth: 1600,
+                    imageQuality: 85,
+                  );
+                  if (picked == null) return;
+                  await ref.read(sessionRepositoryProvider).addPhoto(
+                        sessionId: s.id,
+                        groupId: s.groupId,
+                        image: File(picked.path),
+                      );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Photo ajoutée au souvenir 📷')),
+                    );
+                  }
+                },
+              ),
             ],
             const Spacer(),
             FilledButton(

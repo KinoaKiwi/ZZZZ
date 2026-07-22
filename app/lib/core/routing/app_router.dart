@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/auth_screen.dart';
+import '../../features/chat/chat_screen.dart';
 import '../../features/group/group_screen.dart';
 import '../../features/map/map_screen.dart';
 import '../../features/session/session_screen.dart';
@@ -37,6 +38,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/session/:groupId',
         builder: (_, s) => SessionScreen(groupId: s.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/chat/:groupId',
+        builder: (_, s) => ChatScreen(groupId: s.pathParameters['groupId']!),
       ),
       // Deep link d'invitation : /join?token=… (à traiter dans GroupScreen).
       GoRoute(

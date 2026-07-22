@@ -38,16 +38,29 @@ Légende : ✅ fait · 🚧 en cours · ⬜ à faire
 > sur une machine avec Flutter, puis `flutter run`, et valider sur un téléphone réel
 > (permissions, précision GPS, comptage de pas, rendu de carte).
 
-## Phase 2 — Vie du groupe ⬜
+## Phase 2 — Vie du groupe 🚧 (code-complete)
 
 **Objectif : le groupe vit sur la carte (se voit, se parle, marque des lieux).**
 
-| # | Fonctionnalité             | Détail                                                             |
-|---|----------------------------|-------------------------------------------------------------------|
-| 1 | Photos & points d'intérêt  | POI géolocalisés (photo / lieu / souvenir), Supabase Storage      |
-| 2 | Chat de groupe             | Texte, photo, position, lieu partagé (Realtime)                   |
-| 3 | Localisation temps réel    | Positions live + réglage visibilité (visible/session/invisible)   |
-| 4 | Campements                 | Camp personnel (niche compagnon) + camp de groupe (admin)         |
+| # | Fonctionnalité             | Détail                                                             | État |
+|---|----------------------------|--------------------------------------------------------------------|------|
+| 1 | Photos & points d'intérêt  | POI géolocalisés (photo / lieu / souvenir), Supabase Storage, appui long carte | ✅ |
+| 2 | Chat de groupe             | Texte, photo, position, lieu partagé — temps réel (Realtime)       | ✅ |
+| 3 | Localisation temps réel    | Positions live pendant session + réglage visibilité (3 modes)      | ✅ |
+| 4 | Campements                 | Camp personnel (niche compagnon) + camp de groupe (admin), appui long | ✅ |
+| 5 | Photos de session          | Ajout de photos souvenirs depuis le résumé de session              | ✅ |
+| 6 | Carte vivante              | Recharge auto quand un ami révèle une zone (Realtime)              | ✅ |
+
+**Livrables techniques Phase 2**
+- Migrations `0008` (buckets Storage + policies par groupe) et `0009` (lat/lng
+  générés + publication Realtime). ✅
+- Repositories : POI, chat, présence, camps + providers temps réel. ✅
+- Écrans/UI : chat complet, fiche POI (caméra/galerie), fiche camp, réglage
+  visibilité, amis en direct sur la carte. ✅
+- Publication de position pendant les sessions (throttlée, respecte la visibilité). ✅
+
+> Comme la Phase 1 : **à valider sur appareil** (pas de SDK Flutter dans
+> l'environnement de génération).
 
 ## Phase 3 — Économie & progression ⬜
 

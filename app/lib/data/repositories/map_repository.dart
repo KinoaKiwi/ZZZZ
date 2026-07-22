@@ -47,3 +47,14 @@ class MapRepository {
 final mapRepositoryProvider = Provider<MapRepository>((ref) {
   return MapRepository(ref.watch(supabaseClientProvider));
 });
+
+/// Signal temps réel : nombre de zones découvertes du groupe. Quand un ami
+/// termine une session, la valeur change → la carte se recharge.
+final zonesLiveProvider = StreamProvider.family<int, String>((ref, groupId) {
+  final client = ref.watch(supabaseClientProvider);
+  return client
+      .from('discovered_zones')
+      .stream(primaryKey: ['id'])
+      .eq('group_id', groupId)
+      .map((rows) => rows.length);
+});
