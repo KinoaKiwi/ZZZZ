@@ -119,6 +119,7 @@ Voir [`app/README.md`](app/README.md).
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md)     | Modèle de données complet (entités, relations)      |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md)           | Découpage détaillé des 4 phases                     |
 | [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md)   | Économie Djadja, Contest, objets, compagnon         |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)     | Mise en ligne (Supabase Cloud) + connexion de l'app |
 
 ## 👑 Groupe
 
