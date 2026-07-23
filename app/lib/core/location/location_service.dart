@@ -31,7 +31,7 @@ class LocationService {
   /// Position ponctuelle actuelle (pour centrer la carte au démarrage).
   Future<Position> currentPosition() {
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      desiredAccuracy: LocationAccuracy.high,
     );
   }
 
