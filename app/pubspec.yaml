@@ -1,0 +1,66 @@
+name: gayeulle_party
+description: "Gayeulle Party — jeu d'exploration GPS privé entre amis."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- State management & DI ---
+  flutter_riverpod: ^2.5.1
+
+  # --- Navigation (deep links pour les liens d'invitation) ---
+  go_router: ^14.2.0
+
+  # --- Backend (Auth, Postgres/PostGIS, Storage, Realtime) ---
+  supabase_flutter: ^2.5.6
+
+  # --- Carte (MapLibre GL + tuiles OpenStreetMap) ---
+  maplibre_gl: ^0.26.2
+
+  # --- Localisation & sessions en arrière-plan ---
+  # (le suivi en arrière-plan est géré nativement par geolocator :
+  #  foreground service Android + background mode iOS — voir location_service.dart)
+  geolocator: ^12.0.0
+  permission_handler: ^11.3.1
+
+  # --- Deep links (liens d'invitation gayeulle://join?token=…) ---
+  app_links: ^6.1.1
+
+  # --- Photos (POI, chat, souvenirs de session) ---
+  image_picker: ^1.1.2
+
+  # --- Mode Boussole (cap magnétique, navigation à la flèche) ---
+  flutter_compass: ^0.8.1
+
+  # --- Compteur de pas (capteur natif via pedometer) ---
+  # (le package `health` a été retiré : non utilisé et incompatible Flutter récent)
+  pedometer: ^4.0.2
+
+  # --- Utilitaires ---
+  shared_preferences: ^2.2.3
+  intl: ^0.19.0
+  flutter_dotenv: ^5.1.0
+  uuid: ^4.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+    - assets/map/
+    # - assets/pixel/        # skins, tuiles pixel-art, effets (Phase 3+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Note : les versions ci-dessus sont indicatives (cutoff début 2026). Lancer
+# `flutter pub get` puis, si besoin, `flutter pub upgrade --major-versions`.
+# ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,38 @@
+# Configuration Supabase — Gayeulle Party
+# Réf : https://supabase.com/docs/guides/cli/config
+
+project_id = "gayeulle-party"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 16
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "gayeulle://"
+# Liens d'invitation / retour d'OTP vers l'app mobile (deep links).
+additional_redirect_urls = ["gayeulle://", "gayeulle://join"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false   # OTP-first pour un onboarding mobile fluide
+
+[realtime]
+enabled = true

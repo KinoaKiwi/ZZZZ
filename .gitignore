@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────
+# Gayeulle Party — .gitignore
+# ─────────────────────────────────────────────
+
+# --- Flutter / Dart ---
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/build/
+app/.pub-cache/
+app/.pub/
+app/pubspec.lock
+app/**/generated_plugin_registrant.dart
+app/**/*.g.dart
+app/**/*.freezed.dart
+app/**/*.gr.dart
+app/coverage/
+app/doc/api/
+
+# iOS
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/ios/Runner/GeneratedPluginRegistrant.*
+app/ios/**/*.mode1v3
+app/ios/**/*.pbxuser
+app/**/DerivedData/
+
+# Android
+app/android/.gradle/
+app/android/captures/
+app/android/local.properties
+app/android/key.properties
+app/android/app/google-services.json
+app/android/**/GeneratedPluginRegistrant.java
+app/**/*.keystore
+app/**/*.jks
+
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+**/secrets.dart
+**/*.secret.*
+service-account*.json
+
+# --- Supabase ---
+backend/supabase/.branches/
+backend/supabase/.temp/
+backend/supabase/.env
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- Logs / misc ---
+*.log
+node_modules/
