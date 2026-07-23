@@ -34,7 +34,7 @@ class MapScreen extends ConsumerStatefulWidget {
 }
 
 class _MapScreenState extends ConsumerState<MapScreen> {
-  MaplibreMapController? _controller;
+  MapLibreMapController? _controller;
   bool _styleReady = false;
 
   /// Objet Contest « armé » : le prochain appui long sur la carte l'utilise.
@@ -64,7 +64,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          MaplibreMap(
+          MapLibreMap(
             styleString: Env.mapStyleUrl,
             myLocationEnabled: true,
             initialCameraPosition: const CameraPosition(

@@ -21,7 +21,7 @@ dependencies:
   supabase_flutter: ^2.5.6
 
   # --- Carte (MapLibre GL + tuiles OpenStreetMap) ---
-  maplibre_gl: ^0.20.0
+  maplibre_gl: ^0.26.2
 
   # --- Localisation & sessions en arrière-plan ---
   # (le suivi en arrière-plan est géré nativement par geolocator :
@@ -38,9 +38,9 @@ dependencies:
   # --- Mode Boussole (cap magnétique, navigation à la flèche) ---
   flutter_compass: ^0.8.1
 
-  # --- Compteur de pas (natif : HealthKit / Health Connect) ---
+  # --- Compteur de pas (capteur natif via pedometer) ---
+  # (le package `health` a été retiré : non utilisé et incompatible Flutter récent)
   pedometer: ^4.0.2
-  health: ^10.2.0
 
   # --- Utilitaires ---
   shared_preferences: ^2.2.3
