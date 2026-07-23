@@ -9,6 +9,10 @@ on:
     branches: ["claude/session-46mgam"]
   workflow_dispatch: {}
 
+# Nécessaire pour publier une Release (lien de téléchargement direct de l'APK).
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -63,9 +67,22 @@ jobs:
         working-directory: app
         run: flutter build apk --debug
 
-      - name: Publier l'APK
+      - name: Publier l'APK (artefact — sauvegarde)
         uses: actions/upload-artifact@v4
         with:
           name: gayeulle-party-apk
           path: app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+
+      - name: Renommer l'APK
+        run: cp app/build/app/outputs/flutter-apk/app-debug.apk gayeulle-party.apk
+
+      - name: Publier une Release (lien de téléchargement direct)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: "Gayeulle Party — Android (dernière version)"
+          body: |
+            Télécharge et installe **gayeulle-party.apk** sur ton téléphone Android.
+            (Autorise l'installation depuis des sources inconnues si demandé.)
+          files: gayeulle-party.apk
