@@ -1,0 +1,68 @@
+name: Build Android APK
+
+# Compile Gayeulle Party en APK Android à chaque push sur la branche de dev,
+# et publie le fichier .apk en artefact téléchargeable (onglet Actions → run →
+# Artifacts). Aucun outil à installer côté joueur.
+
+on:
+  push:
+    branches: ["claude/session-46mgam"]
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java (Android/Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          cache: true
+
+      # La clé anon Supabase est publique par design (RLS activé), elle ship
+      # de toute façon dans l'app : on peut la mettre dans le build.
+      - name: Créer app/.env
+        working-directory: app
+        run: |
+          cat > .env <<'EOF'
+          SUPABASE_URL=https://slnwairiecbtcjihcjff.supabase.co
+          SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsbndhaXJpZWNidGNqaWhjamZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MzQyMTIsImV4cCI6MjEwMDMxMDIxMn0.WjnS0PbcQGoXa1Ljrbmx0Zv3lFK8tk2z3_Z6bHkYU2E
+          MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
+          OSRM_BASE_URL=https://router.project-osrm.org
+          EOF
+
+      - name: Générer le projet Android natif
+        working-directory: app
+        run: flutter create --project-name gayeulle_party --org com.gayeulle --platforms=android .
+
+      - name: Appliquer le manifeste (permissions + deep links)
+        run: cp tools/native-overlay/android/AndroidManifest.xml app/android/app/src/main/AndroidManifest.xml
+
+      - name: Installer les dépendances
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyse (non bloquante)
+        working-directory: app
+        run: flutter analyze || true
+
+      - name: Build APK (debug, installable)
+        working-directory: app
+        run: flutter build apk --debug
+
+      - name: Publier l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: gayeulle-party-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
