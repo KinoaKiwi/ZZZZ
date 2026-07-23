@@ -25,7 +25,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5"
           channel: stable
           cache: true
 
@@ -47,6 +46,10 @@ jobs:
 
       - name: Appliquer le manifeste (permissions + deep links)
         run: cp tools/native-overlay/android/AndroidManifest.xml app/android/app/src/main/AndroidManifest.xml
+
+      - name: Retirer le test par défaut généré (référence MyApp inexistant)
+        working-directory: app
+        run: rm -f test/widget_test.dart
 
       - name: Installer les dépendances
         working-directory: app
