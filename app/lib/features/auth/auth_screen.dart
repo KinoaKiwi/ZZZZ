@@ -40,17 +40,35 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       final email = _emailCtrl.text.trim();
       final password = _passwordCtrl.text;
       if (_signUpMode) {
-        await auth.signUp(
+        final res = await auth.signUp(
           email: email,
           password: password,
           displayName: _nameCtrl.text.trim(),
         );
+        // Session immédiate = « Confirm email » désactivé → connecté.
+        // Pas de session = confirmation exigée côté Supabase → message clair.
+        if (res.session == null && auth.currentUser == null) {
+          setState(() => _error =
+              'Compte créé ✅ mais Supabase demande une confirmation par email.\n'
+              'L\'admin doit décocher « Confirm email » (Authentication → '
+              'Providers → Email → Save), puis reconnecte-toi.');
+          return;
+        }
       } else {
         await auth.signIn(email: email, password: password);
       }
       // La redirection est gérée par le router (état d'auth).
     } catch (e) {
-      setState(() => _error = _friendlyError(e));
+      final msg = _friendlyError(e);
+      // « Compte déjà existant » en création → bascule vers la connexion.
+      if (_signUpMode && msg.contains('existe déjà')) {
+        setState(() {
+          _signUpMode = false;
+          _error = 'Ce compte existe déjà — connecte-toi avec ton mot de passe.';
+        });
+      } else {
+        setState(() => _error = msg);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

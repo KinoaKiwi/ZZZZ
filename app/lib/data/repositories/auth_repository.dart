@@ -19,25 +19,20 @@ class AuthRepository {
 
   /// Création de compte par email + mot de passe.
   ///
-  /// Nécessite que la confirmation par email soit **désactivée** côté Supabase
-  /// (Authentication → Providers → Email → « Confirm email » OFF), sinon aucune
-  /// session n'est ouverte tant que l'email n'est pas confirmé. Si la session
-  /// n'est pas immédiate, on tente une connexion directe.
+  /// Si la confirmation par email est désactivée côté Supabase
+  /// (Authentication → Providers → Email → « Confirm email » OFF), la session
+  /// est ouverte immédiatement (`res.session != null`). Sinon, `res.session`
+  /// est null : l'appelant affiche un message clair (pas de fallback trompeur).
   Future<AuthResponse> signUp({
     required String email,
     required String password,
     String? displayName,
-  }) async {
-    final res = await _client.auth.signUp(
+  }) {
+    return _client.auth.signUp(
       email: email,
       password: password,
       data: {if (displayName != null && displayName.isNotEmpty) 'display_name': displayName},
     );
-    if (res.session == null) {
-      // Confirmation email désactivée → on peut se connecter tout de suite.
-      return signIn(email: email, password: password);
-    }
-    return res;
   }
 
   Future<void> signOut() => _client.auth.signOut();
