@@ -4,7 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/auth_repository.dart';
 
-/// Écran de connexion par code email (OTP). Onboarding mobile fluide.
+/// Écran de connexion / inscription par email + mot de passe (sans email à
+/// recevoir).
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -14,36 +15,66 @@ class AuthScreen extends ConsumerStatefulWidget {
 
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _emailCtrl = TextEditingController();
-  final _tokenCtrl = TextEditingController();
-  bool _codeSent = false;
+  final _passwordCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+
+  bool _signUpMode = false; // false = connexion, true = création de compte
   bool _busy = false;
   String? _error;
 
   @override
   void dispose() {
     _emailCtrl.dispose();
-    _tokenCtrl.dispose();
+    _passwordCtrl.dispose();
+    _nameCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _submit() async {
     setState(() {
       _busy = true;
       _error = null;
     });
+    final auth = ref.read(authRepositoryProvider);
     try {
-      await action();
+      final email = _emailCtrl.text.trim();
+      final password = _passwordCtrl.text;
+      if (_signUpMode) {
+        await auth.signUp(
+          email: email,
+          password: password,
+          displayName: _nameCtrl.text.trim(),
+        );
+      } else {
+        await auth.signIn(email: email, password: password);
+      }
+      // La redirection est gérée par le router (état d'auth).
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  String _friendlyError(Object e) {
+    final msg = e.toString();
+    if (msg.contains('Invalid login')) {
+      return 'Email ou mot de passe incorrect.';
+    }
+    if (msg.contains('already registered') || msg.contains('User already')) {
+      return 'Ce compte existe déjà — connecte-toi.';
+    }
+    if (msg.contains('Password should be')) {
+      return 'Mot de passe trop court (6 caractères minimum).';
+    }
+    if (msg.contains('Email not confirmed')) {
+      return 'Confirmation email requise. (Admin : désactive « Confirm email » dans Supabase.)';
+    }
+    return msg.replaceAll('AuthException(message: ', '').replaceAll(')', '');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final auth = ref.read(authRepositoryProvider);
-
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -70,45 +101,53 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   style: TextStyle(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 32),
+                if (_signUpMode) ...[
+                  TextField(
+                    controller: _nameCtrl,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(hintText: 'Ton pseudo'),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 TextField(
                   controller: _emailCtrl,
-                  enabled: !_codeSent,
                   keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
                   decoration: const InputDecoration(hintText: 'ton@email.com'),
                 ),
-                if (_codeSent) ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _tokenCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(hintText: 'Code reçu par email'),
-                  ),
-                ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(hintText: 'Mot de passe'),
+                  onSubmitted: (_) => _busy ? null : _submit(),
+                ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(_error!, style: const TextStyle(color: AppColors.danger)),
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () {
-                          if (!_codeSent) {
-                            _run(() async {
-                              await auth.signInWithOtp(_emailCtrl.text.trim());
-                              if (mounted) setState(() => _codeSent = true);
-                            });
-                          } else {
-                            _run(() => auth.verifyOtp(
-                                  email: _emailCtrl.text.trim(),
-                                  token: _tokenCtrl.text.trim(),
-                                ));
-                          }
-                        },
+                  onPressed: _busy ? null : _submit,
                   child: _busy
                       ? const SizedBox(
                           height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Text(_codeSent ? 'Se connecter' : 'Recevoir mon code'),
+                      : Text(_signUpMode ? 'Créer mon compte' : 'Se connecter'),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() {
+                            _signUpMode = !_signUpMode;
+                            _error = null;
+                          }),
+                  child: Text(
+                    _signUpMode
+                        ? 'J\'ai déjà un compte — Se connecter'
+                        : 'Nouveau ? Créer un compte',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
                 ),
               ],
             ),

@@ -12,21 +12,32 @@ class AuthRepository {
 
   User? get currentUser => _client.auth.currentUser;
 
-  /// Envoie un code de connexion (OTP) par email — onboarding mobile fluide.
-  Future<void> signInWithOtp(String email) {
-    return _client.auth.signInWithOtp(
-      email: email,
-      emailRedirectTo: 'gayeulle://',
-    );
+  /// Connexion par email + mot de passe (aucun email à recevoir).
+  Future<AuthResponse> signIn({required String email, required String password}) {
+    return _client.auth.signInWithPassword(email: email, password: password);
   }
 
-  /// Vérifie le code reçu par email et ouvre la session.
-  Future<AuthResponse> verifyOtp({required String email, required String token}) {
-    return _client.auth.verifyOTP(
+  /// Création de compte par email + mot de passe.
+  ///
+  /// Nécessite que la confirmation par email soit **désactivée** côté Supabase
+  /// (Authentication → Providers → Email → « Confirm email » OFF), sinon aucune
+  /// session n'est ouverte tant que l'email n'est pas confirmé. Si la session
+  /// n'est pas immédiate, on tente une connexion directe.
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+    String? displayName,
+  }) async {
+    final res = await _client.auth.signUp(
       email: email,
-      token: token,
-      type: OtpType.email,
+      password: password,
+      data: {if (displayName != null && displayName.isNotEmpty) 'display_name': displayName},
     );
+    if (res.session == null) {
+      // Confirmation email désactivée → on peut se connecter tout de suite.
+      return signIn(email: email, password: password);
+    }
+    return res;
   }
 
   Future<void> signOut() => _client.auth.signOut();

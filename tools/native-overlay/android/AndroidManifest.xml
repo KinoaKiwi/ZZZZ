@@ -16,6 +16,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
+    <!-- ── Exemption de la mise en veille batterie (Oppo/Xiaomi/…) ── -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
     <!-- ── Notifications (Android 13+) ── -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 

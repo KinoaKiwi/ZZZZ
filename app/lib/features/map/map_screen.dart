@@ -19,6 +19,7 @@ import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/presence_repository.dart';
 import '../economy/widgets/coin_chip.dart';
 import '../places/add_poi_sheet.dart';
+import '../session/session_controller.dart';
 import 'widgets/camp_sheet.dart';
 import 'widgets/visibility_sheet.dart';
 
@@ -105,12 +106,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           if (FeatureFlags.contest) _contestOverlay(),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/session/${widget.groupId}'),
-        backgroundColor: AppColors.neonMagenta,
-        foregroundColor: AppColors.background,
-        icon: const Icon(Icons.directions_walk),
-        label: const Text('Commencer une session'),
+      floatingActionButton: Builder(
+        builder: (context) {
+          final running = ref.watch(sessionControllerProvider).isRunning;
+          return FloatingActionButton.extended(
+            onPressed: () => context.go('/session/${widget.groupId}'),
+            backgroundColor: running ? AppColors.success : AppColors.neonMagenta,
+            foregroundColor: AppColors.background,
+            icon: Icon(running ? Icons.timer : Icons.directions_walk),
+            label: Text(running ? 'Session en cours…' : 'Commencer une session'),
+          );
+        },
       ),
     );
   }

@@ -86,13 +86,82 @@ class _GroupScreenState extends ConsumerState<GroupScreen> {
                 child: ListTile(
                   leading: const CircleAvatar(child: Text('🗺️')),
                   title: Text(g.name),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.person_add, color: AppColors.neonCyan),
+                        tooltip: 'Inviter des amis',
+                        onPressed: () => _showInvite(context, ref, g.id),
+                      ),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
                   onTap: () => context.go('/map/${g.id}'),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+
+  /// Génère un lien/jeton d'invitation et l'affiche pour le partager aux amis.
+  Future<void> _showInvite(BuildContext context, WidgetRef ref, String groupId) async {
+    String? link;
+    String? errorMsg;
+    try {
+      link = await ref.read(groupRepositoryProvider).createInviteLink(groupId);
+    } catch (e) {
+      errorMsg = e.toString();
+    }
+    if (!context.mounted) return;
+
+    // Le jeton est la partie après "token=".
+    final token = link != null && link.contains('token=')
+        ? link.split('token=').last
+        : null;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Inviter des amis'),
+        content: errorMsg != null
+            ? Text('Erreur : $errorMsg')
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Tes amis installent l\'app, créent un compte, puis collent '
+                    'ce code dans « Rejoindre via un lien » :',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    token ?? link ?? '',
+                    style: const TextStyle(
+                      color: AppColors.neonCyan,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+        actions: [
+          if (token != null || link != null)
+            TextButton.icon(
+              icon: const Icon(Icons.copy),
+              label: const Text('Copier le code'),
+              onPressed: () => copyInvite(ctx, token ?? link!),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Service de localisation basé sur `geolocator`.
 ///
@@ -24,6 +25,15 @@ class LocationService {
     if (permission == LocationPermission.deniedForever ||
         permission == LocationPermission.denied) {
       return false;
+    }
+
+    // Comptage de pas (Android 10+) + exemption de la mise en veille batterie,
+    // indispensable sur Oppo/Xiaomi/Huawei qui tuent les apps en arrière-plan.
+    await Permission.activityRecognition.request();
+    if (Platform.isAndroid) {
+      if (!await Permission.ignoreBatteryOptimizations.isGranted) {
+        await Permission.ignoreBatteryOptimizations.request();
+      }
     }
     return true;
   }

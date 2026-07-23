@@ -32,7 +32,9 @@ class SessionScreen extends ConsumerWidget {
         title: const Text('Session d\'exploration'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: state.isRunning ? null : () => context.go('/map/$groupId'),
+          // La session continue en arrière-plan : revenir à la carte ne l'arrête
+          // pas (bouton « Terminer » pour l'arrêter).
+          onPressed: () => context.go('/map/$groupId'),
         ),
       ),
       body: Padding(
