@@ -56,14 +56,28 @@ Variables d'environnement (facultatives) :
 - **À écouter** — la pile de ce qu'on met de côté.
 - **Playlists** — privées ou publiques ; on y ajoute une pièce, ou une série
   entière d'un coup, et on réordonne au glisser-déposer.
+- **Réactions** — un fil de discussion sous chaque pièce, 1500 signes maximum,
+  supprimable par son auteur. Chacun peut **signaler** une réaction ou une
+  playlist publique (spam, haine, harcèlement, hors sujet, droits, autre) : le
+  signalement part dans la file du studio.
 - **Historique** des écoutes, thème clair / sombre, mise en page responsive.
 
 ## Le studio
 
 Sur `/studio`, avec le compte propriétaire. Quatre onglets :
 
-- **Antenne** — pièces en ligne, durée publiée, écoutes (7 jours et total), notes,
-  auditeurs, espace disque, classement des pièces les plus écoutées.
+- **Antenne** — le tableau de bord.
+  - Quatre chiffres en tête : écoutes sur 30 jours, auditeurs connectés, **temps
+    réellement écouté** (les pièces terminées comptent en entier, les autres là où
+    l'auditeur s'est arrêté) et **taux d'achèvement**.
+  - Deux courbes sur 30 jours, écoutes par jour et nouvelles inscriptions, avec le
+    pic étiqueté, une infobulle au survol et un repli « voir les chiffres » qui
+    donne le tableau des valeurs.
+  - Un bloc **À traiter** : brouillons en attente, signalements ouverts, pièces en
+    ligne que personne n'a encore écoutées, comptes restreints.
+  - Le catalogue en chiffres, les thèmes les plus écoutés, la répartition des
+    notes, le classement des pièces (écoutes, part terminée, note) et les derniers
+    inscrits.
 - **Pièces** — dépôt par glisser-déposer (20 fichiers par envoi, 400 Mo par
   fichier, `mp3 flac wav ogg opus m4a aac webm`), avec une série de destination
   facultative. Les tags ID3/Vorbis sont lus à l'import : titre, auteur, durée et
@@ -73,7 +87,32 @@ Sur `/studio`, avec le compte propriétaire. Quatre onglets :
 - **Séries** — création, présentation, illustration, ordre des épisodes au
   glisser-déposer. Supprimer une série ne supprime pas ses pièces : elles
   redeviennent des pièces isolées.
-- **Auditeurs** — comptes, promotion au studio, suppression.
+- **Modération** — cinq vues :
+  - **Signalements** : la file d'arbitrage. Chaque cas montre le motif, qui a
+    signalé, et le contenu visé cité en clair. Les gestes sont sur place — masquer
+    ou supprimer une réaction, retirer une playlist du public, suspendre un compte
+    — puis *classer* ou *écarter*. Un signalement traité reste consultable et peut
+    être rouvert.
+  - **Réactions** : les cent dernières, avec leur nombre de signalements ;
+    masquer, supprimer, ou suspendre l'auteur.
+  - **Playlists publiques** : retirer du public sans toucher au contenu — la
+    playlist reste intacte chez son auteur, elle sort simplement de la liste.
+  - **Comptes** : les comptes signalés ou restreints, avec une note interne.
+  - **Journal** : toutes les décisions prises, horodatées et attribuées.
+- **Auditeurs** — la liste complète : rôle, état du compte, réactions, écoutes,
+  playlists, suppression.
+
+### Les trois états d'un compte
+
+| État | Ce qu'il peut faire |
+|------|---------------------|
+| **actif** | tout |
+| **suspendu** | écouter, reprendre, mettre de côté, garder ses playlists privées — mais plus publier de réaction, de note ni de playlist publique |
+| **fermé** | ne peut plus se connecter ; ses sessions ouvertes sont coupées |
+
+Une réaction masquée disparaît pour tout le monde **sauf pour son auteur**, qui la
+voit barrée avec la mention « masqué par la modération » : la modération est
+visible, jamais un piège silencieux.
 
 Rien n'apparaît sur le site public tant que la case « en ligne » n'est pas cochée
 — sur la pièce comme sur la série.
@@ -90,10 +129,12 @@ src/auth.js             sessions en base, bcrypt, garde-fous de rôle
 src/util.js             slugs, thèmes, validation
 src/routes/auth.js      inscription, connexion, profil
 src/routes/catalog.js   catalogue, séries, notes, signets, reprises, écoutes
+src/routes/community.js réactions et signalements
 src/routes/playlists.js playlists et leur contenu
 src/routes/studio.js    dépôts et administration (rôle studio requis)
 public/css/onde.css     la feuille de style commune
 public/js/player.js     le lecteur persistant (reprise, vitesse, ±15 s)
+public/js/chart.js      les graphiques du studio, en HTML
 public/js/app.js        le site public (routage + vues)
 public/js/studio.js     le studio
 data/                   base SQLite + fichiers déposés (hors dépôt)
@@ -110,6 +151,13 @@ data/                   base SQLite + fichiers déposés (hors dépôt)
   `nosniff`, `X-Frame-Options`, `Referrer-Policy`.
 - **Permaliens** : l'adresse d'une pièce suit son titre tant qu'elle est en
   brouillon, puis se fige à la publication.
+- **Graphiques** : dessinés en HTML et CSS, sans librairie — ils se recomposent
+  avec la page et leur typographie ne se déforme pas. Une seule teinte porte la
+  donnée, seul le pic est étiqueté, le reste est au survol, et chaque courbe est
+  doublée d'un tableau de valeurs.
+- **Modération** : chaque geste écrit une ligne dans `mod_actions`, avec son
+  auteur et sa cible. Signaler deux fois le même élément est refusé, et les
+  publications sont limitées en fréquence par compte.
 
 ## À savoir avant de mettre en ligne
 

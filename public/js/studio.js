@@ -3,6 +3,7 @@ import {
 } from './dom.js';
 import { api, qs } from './api.js';
 import { player } from './player.js';
+import { timeBars, rankBars, statTile } from './chart.js';
 
 const store = {
   user: null,
@@ -12,6 +13,7 @@ const store = {
   editingEpisode: null,
   editingSeries: null,
   filters: { q: '', state: '' },
+  modView: 'reports',
 };
 
 const root = () => document.getElementById('studio');
@@ -20,6 +22,7 @@ const TABS = [
   ['antenne', 'Antenne', panelDashboard],
   ['pieces', 'Pièces', panelEpisodes],
   ['series', 'Séries', panelSeries],
+  ['moderation', 'Modération', panelModeration],
   ['auditeurs', 'Auditeurs', panelUsers],
 ];
 
@@ -87,9 +90,33 @@ window.addEventListener('hashchange', () => {
 
 /* ------------------------------------------------------------- dashboard */
 
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+const ROLE_LABELS = { admin: 'studio', listener: 'auditeur' };
+const STATUS_LABELS = { active: 'actif', suspended: 'suspendu', banned: 'fermé' };
+const TARGET_LABELS = { comment: 'réaction', playlist: 'playlist', user: 'compte' };
+
+function dayLabels(series) {
+  return series.map(({ day, n }) => {
+    const [year, month, date] = day.split('-');
+    return {
+      label: `${Number(date)} ${MONTHS[Number(month) - 1]}`,
+      full: `${Number(date)} ${MONTHS[Number(month) - 1]} ${year}`,
+      value: n,
+    };
+  });
+}
+
+const hours = (seconds) => (seconds < 3600
+  ? `${Math.round(seconds / 60)} min`
+  : `${(seconds / 3600).toFixed(1).replace('.', ',')} h`);
+
 async function panelDashboard(box) {
-  const { totals, top, recent_users: recent } = await api.get('/api/studio/stats');
-  const card = (label, value) => h('div', {}, h('span', { class: 'label', text: label }), h('b', { text: value }));
+  const stats = await api.get('/api/studio/stats');
+  const { totals, completion, plays_daily: plays, signups_daily: signups, ratings_spread: spread, top, tags, recent_users: recent } = stats;
+
+  const noPlays = tags.every((t) => t.plays === 0);
+  const attention = totals.drafts + totals.reports_open + totals.never_played + totals.suspended;
 
   render(box, h('section', { class: 'panel' },
     h('div', { class: 'panel__head' },
@@ -100,34 +127,84 @@ async function panelDashboard(box) {
       h('a', { class: 'btn btn--solid', href: '#pieces', text: 'Déposer une pièce' }),
     ),
 
-    h('div', { class: 'cards cards--3' },
-      card('Pièces en ligne', `${totals.published} / ${totals.episodes}`),
-      card('Séries', String(totals.series)),
-      card('Durée publiée', `${(totals.duration / 3600).toFixed(1)} h`),
-      card('Auditeurs', String(totals.users)),
-      card('Écoutes (7 jours)', String(totals.plays_7d)),
-      card('Écoutes totales', String(totals.plays)),
-      card('Notes déposées', String(totals.ratings)),
-      card('Espace audio', fmtSize(totals.storage)),
+    h('div', { class: 'tiles' },
+      statTile('Écoutes (30 jours)', String(totals.plays_30d), { hint: `${totals.plays} depuis le début` }),
+      statTile('Auditeurs connectés (30 j)', String(totals.listeners_30d), { hint: `${totals.users} comptes au total` }),
+      statTile('Temps écouté', hours(totals.listened), { hint: `catalogue de ${hours(totals.duration)}` }),
+      statTile('Pièces terminées', `${completion.rate} %`, {
+        share: completion.rate,
+        hint: `${completion.finished} sur ${completion.started} commencées`,
+      }),
+    ),
+
+    h('div', { class: 'section' },
+      h('div', { class: 'charts-2' },
+        timeBars({ caption: 'Écoutes par jour', data: dayLabels(plays), unit: 'écoutes', empty: 'Aucune écoute sur les 30 derniers jours.' }),
+        timeBars({ caption: 'Nouveaux comptes', data: dayLabels(signups), unit: 'comptes', empty: 'Aucune inscription sur les 30 derniers jours.' }),
+      ),
+    ),
+
+    attention
+      ? h('div', { class: 'section' },
+          h('h2', { text: 'À traiter' }),
+          h('div', { class: 'tiles' },
+            statTile('Brouillons', String(totals.drafts), { hint: totals.drafts ? 'en attente de publication' : 'rien en attente' }),
+            statTile('Signalements ouverts', String(totals.reports_open), { hint: totals.reports_open ? 'à arbitrer' : 'file vide' }),
+            statTile('Jamais écoutées', String(totals.never_played), { hint: 'pièces en ligne sans une seule écoute' }),
+            statTile('Comptes restreints', String(totals.suspended), { hint: 'suspendus ou fermés' }),
+          ),
+        )
+      : null,
+
+    h('div', { class: 'section' },
+      h('h2', { text: 'Le catalogue en chiffres' }),
+      h('div', { class: 'tiles' },
+        statTile('Pièces en ligne', `${totals.published} / ${totals.episodes}`),
+        statTile('Séries', String(totals.series)),
+        statTile('Note moyenne', totals.avg_rating ? `${Number(totals.avg_rating).toFixed(1)} / 5` : '—', { hint: `${totals.ratings} notes` }),
+        statTile('Réactions', String(totals.comments), { hint: totals.comments_hidden ? `${totals.comments_hidden} masquée(s)` : 'aucune masquée' }),
+        statTile('Playlists publiques', String(totals.public_playlists), { hint: `${totals.playlists} au total` }),
+        statTile('Espace audio', fmtSize(totals.storage)),
+      ),
+    ),
+
+    h('div', { class: 'section' },
+      h('div', { class: 'charts-2' },
+        rankBars({
+          caption: noPlays ? 'Thèmes — nombre de pièces' : 'Thèmes les plus écoutés',
+          rows: tags.map((t) => ({ label: t.tag, value: noPlays ? t.episodes : t.plays })),
+          empty: 'Aucun thème renseigné.',
+        }),
+        rankBars({
+          caption: 'Répartition des notes',
+          rows: [5, 4, 3, 2, 1].map((score) => ({
+            label: `${score} étoile${score > 1 ? 's' : ''}`,
+            value: spread.find((r) => r.score === score)?.n ?? 0,
+          })),
+          empty: 'Aucune note déposée.',
+        }),
+      ),
     ),
 
     h('div', { class: 'section' },
       h('h2', { text: 'Les plus écoutées' }),
       top.length
-        ? table(['Pièce', 'Écoutes', 'Note'], top.map((row) => [
+        ? table(['Pièce', 'Écoutes', 'Terminée', 'Note'], top.map((row) => [
             h('a', { href: `/piece/${row.slug}`, text: row.title }),
             h('span', { class: 'num', text: String(row.plays) }),
+            h('span', { class: 'num', text: row.started ? `${Math.round((row.finished / row.started) * 100)} %` : '—' }),
             h('span', { class: 'num', text: row.rating_avg ? Number(row.rating_avg).toFixed(1) : '—' }),
           ]))
-        : h('div', { class: 'empty', text: 'Pas encore d’écoute enregistrée.' }),
+        : h('div', { class: 'empty', text: 'Aucune pièce publiée pour l’instant.' }),
     ),
 
     h('div', { class: 'section' },
       h('h2', { text: 'Derniers inscrits' }),
       recent.length
-        ? table(['Pseudo', 'Rôle', 'Inscription'], recent.map((u) => [
+        ? table(['Pseudo', 'Rôle', 'État', 'Inscription'], recent.map((u) => [
             u.username,
-            h('span', { class: `tag ${u.role === 'admin' ? 'tag--on' : ''}`, text: u.role }),
+            h('span', { class: `tag ${u.role === 'admin' ? 'tag--on' : ''}`, text: ROLE_LABELS[u.role] ?? u.role }),
+            h('span', { class: `tag ${u.status === 'active' ? 'tag--off' : 'tag--on'}`, text: STATUS_LABELS[u.status] ?? u.status }),
             h('span', { class: 'num', text: fmtDate(u.created_at) }),
           ]))
         : h('div', { class: 'empty', text: 'Aucun compte pour l’instant.' }),
@@ -601,6 +678,346 @@ async function paintSeriesOrder(box, seriesId) {
   );
 }
 
+/* ------------------------------------------------------------- modération */
+
+const REASON_LABELS = {
+  spam: 'Spam', haine: 'Haine', harcelement: 'Harcèlement',
+  'hors-sujet': 'Hors sujet', droits: 'Droits', autre: 'Autre',
+};
+
+const REPORT_STATUS = { open: 'ouvert', resolved: 'classé', dismissed: 'écarté' };
+
+const ACTION_LABELS = {
+  'comment.hide': 'réaction masquée',
+  'comment.show': 'réaction réaffichée',
+  'comment.delete': 'réaction supprimée',
+  'report.resolved': 'signalement classé',
+  'report.dismissed': 'signalement écarté',
+  'report.open': 'signalement rouvert',
+  'playlist.hide': 'playlist retirée du public',
+  'playlist.show': 'playlist remise en public',
+  'user.suspended': 'compte suspendu',
+  'user.banned': 'compte fermé',
+  'user.active': 'compte réactivé',
+  'user.delete': 'compte supprimé',
+  'user.role.admin': 'accès studio accordé',
+  'user.role.listener': 'accès studio retiré',
+};
+
+const MOD_VIEWS = [
+  ['reports', 'Signalements', (d) => d.reports.filter((r) => r.status === 'open').length],
+  ['comments', 'Réactions', (d) => d.comments.filter((c) => c.status === 'hidden' || c.reports).length],
+  ['playlists', 'Playlists publiques', (d) => d.playlists.filter((p) => p.reports).length],
+  ['comptes', 'Comptes', (d) => d.flagged.length],
+  ['journal', 'Journal', () => 0],
+];
+
+async function panelModeration(box) {
+  let data = await api.get('/api/studio/moderation');
+
+  const seg = h('div', { class: 'seg' });
+  const view = h('div');
+
+  const reload = async () => {
+    data = await api.get('/api/studio/moderation');
+    paint();
+  };
+
+  const act = async (run, message) => {
+    try {
+      await run();
+      toast(message);
+      await reload();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  const paint = () => {
+    render(seg, ...MOD_VIEWS.map(([id, label, badge]) => {
+      const n = badge(data);
+      return h('button', {
+        class: store.modView === id ? 'is-on' : '', type: 'button',
+        onclick: () => { store.modView = id; paint(); },
+      }, label, n ? h('i', { text: String(n) }) : null);
+    }));
+
+    const painters = {
+      reports: () => modReports(data, act),
+      comments: () => modComments(data.comments, act),
+      playlists: () => modPlaylists(data.playlists, act),
+      comptes: () => modAccounts(data.flagged, act),
+      journal: () => modLog(),
+    };
+    render(view, painters[store.modView]?.() ?? painters.reports());
+  };
+
+  const open = data.reports.filter((r) => r.status === 'open').length;
+
+  render(box, h('section', { class: 'panel' },
+    h('div', { class: 'panel__head' },
+      h('div', {},
+        h('span', { class: 'label', text: open ? `${open} signalement(s) en attente` : 'file vide' }),
+        h('h1', { text: 'Modération' }),
+      ),
+    ),
+    seg,
+    view,
+  ));
+
+  paint();
+}
+
+function modReports(data, act) {
+  const open = data.reports.filter((r) => r.status === 'open');
+  const closed = data.reports.filter((r) => r.status !== 'open').slice(0, 20);
+
+  if (!data.reports.length) {
+    return h('div', { class: 'empty', text: 'Aucun signalement. Les auditeurs peuvent en déposer depuis une réaction ou une playlist publique.' });
+  }
+
+  const card = (report) => {
+    const { target } = report;
+    const actions = h('div', { class: 'case__actions' });
+
+    if (!target.gone && report.target_type === 'comment') {
+      actions.append(
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button',
+          text: target.status === 'hidden' ? 'Réafficher' : 'Masquer',
+          onclick: () => act(
+            () => api.patch(`/api/studio/comments/${report.target_id}`, {
+              status: target.status === 'hidden' ? 'visible' : 'hidden',
+            }),
+            target.status === 'hidden' ? 'Réaction réaffichée.' : 'Réaction masquée.',
+          ),
+        }),
+        h('button', {
+          class: 'btn btn--ghost btn--sm btn--danger', type: 'button', text: 'Supprimer',
+          onclick: async () => {
+            if (!(await confirmDialog('Supprimer la réaction', 'Le message sera effacé et le signalement classé.'))) return;
+            act(() => api.del(`/api/studio/comments/${report.target_id}`), 'Réaction supprimée.');
+          },
+        }),
+      );
+    }
+
+    if (!target.gone && report.target_type === 'playlist') {
+      actions.append(h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button',
+        text: target.status === 'hidden' ? 'Remettre en public' : 'Retirer du public',
+        onclick: () => act(
+          () => api.patch(`/api/studio/playlists/${report.target_id}`, { moderated: target.status !== 'hidden' }),
+          target.status === 'hidden' ? 'Playlist remise en public.' : 'Playlist retirée du public.',
+        ),
+      }));
+    }
+
+    if (!target.gone && report.target_type === 'user') {
+      actions.append(
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button',
+          text: target.status === 'active' ? 'Suspendre' : 'Réactiver',
+          onclick: () => act(
+            () => api.patch(`/api/studio/users/${report.target_id}`, { status: target.status === 'active' ? 'suspended' : 'active' }),
+            target.status === 'active' ? 'Compte suspendu.' : 'Compte réactivé.',
+          ),
+        }),
+      );
+    }
+
+    if (target.link) actions.append(h('a', { class: 'btn btn--ghost btn--sm', href: target.link, text: 'Voir en ligne' }));
+
+    if (report.status === 'open') {
+      actions.append(
+        h('button', {
+          class: 'btn btn--sm', type: 'button', text: 'Classer',
+          onclick: () => act(() => api.patch(`/api/studio/reports/${report.id}`, { status: 'resolved' }), 'Signalement classé.'),
+        }),
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button', text: 'Écarter',
+          onclick: () => act(() => api.patch(`/api/studio/reports/${report.id}`, { status: 'dismissed' }), 'Signalement écarté.'),
+        }),
+      );
+    } else {
+      actions.append(h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', text: 'Rouvrir',
+        onclick: () => act(() => api.patch(`/api/studio/reports/${report.id}`, { status: 'open' }), 'Signalement rouvert.'),
+      }));
+    }
+
+    return h('article', { class: `case ${report.status === 'open' ? 'case--open' : ''}` },
+      h('div', { class: 'case__head' },
+        h('span', { class: 'tag tag--on', text: REASON_LABELS[report.reason] ?? report.reason }),
+        h('span', { class: `tag ${report.status === 'open' ? '' : 'tag--off'}`, text: REPORT_STATUS[report.status] }),
+        h('span', { class: 'label', text: TARGET_LABELS[report.target_type] ?? report.target_type }),
+        h('span', { class: 'label', text: `signalé par ${report.reporter ?? 'compte supprimé'} · ${fmtDateTime(report.created_at)}` }),
+      ),
+      h('p', { class: `case__quote ${target.gone ? 'case__quote--muted' : ''}`, text: target.label }),
+      target.meta ? h('div', { class: 'pick__sub', text: target.meta }) : null,
+      report.detail ? h('p', { class: 'case__note', text: `motif détaillé : ${report.detail}` }) : null,
+      actions,
+    );
+  };
+
+  return frag(
+    open.length
+      ? frag(h('h2', { class: 'label', style: { marginBottom: '4px' }, text: 'En attente' }), ...open.map(card))
+      : h('div', { class: 'empty', text: 'Rien en attente. Tout est arbitré.' }),
+    closed.length
+      ? frag(
+          h('h2', { class: 'label', style: { margin: '40px 0 4px' }, text: 'Déjà traités' }),
+          ...closed.map(card),
+        )
+      : null,
+  );
+}
+
+function modComments(comments, act) {
+  if (!comments.length) return h('div', { class: 'empty', text: 'Aucune réaction publiée pour l’instant.' });
+
+  return frag(
+    h('p', { class: 'label', style: { marginBottom: '18px' }, text: `${comments.length} dernière(s) réaction(s)` }),
+    ...comments.map((comment) => h('article', { class: `case ${comment.reports ? 'case--open' : ''}` },
+      h('div', { class: 'case__head' },
+        h('span', { style: { fontWeight: '500' }, text: comment.username }),
+        comment.status === 'hidden' ? h('span', { class: 'tag tag--on', text: 'masquée' }) : null,
+        comment.reports ? h('span', { class: 'tag tag--on', text: `${comment.reports} signalement(s)` }) : null,
+        comment.user_status !== 'active'
+          ? h('span', { class: 'tag tag--on', text: STATUS_LABELS[comment.user_status] ?? comment.user_status })
+          : null,
+        h('span', { class: 'label', text: fmtDateTime(comment.created_at) }),
+      ),
+      h('p', { class: 'case__quote', text: comment.body }),
+      h('div', { class: 'pick__sub', text: `sur « ${comment.episode_title} »` }),
+      h('div', { class: 'case__actions' },
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button',
+          text: comment.status === 'hidden' ? 'Réafficher' : 'Masquer',
+          onclick: () => act(
+            () => api.patch(`/api/studio/comments/${comment.id}`, { status: comment.status === 'hidden' ? 'visible' : 'hidden' }),
+            comment.status === 'hidden' ? 'Réaction réaffichée.' : 'Réaction masquée.',
+          ),
+        }),
+        h('button', {
+          class: 'btn btn--ghost btn--sm btn--danger', type: 'button', text: 'Supprimer',
+          onclick: async () => {
+            if (!(await confirmDialog('Supprimer la réaction', 'Le message sera définitivement effacé.'))) return;
+            act(() => api.del(`/api/studio/comments/${comment.id}`), 'Réaction supprimée.');
+          },
+        }),
+        h('a', { class: 'btn btn--ghost btn--sm', href: `/piece/${comment.episode_slug}`, text: 'Voir la pièce' }),
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button', text: 'Suspendre l’auteur',
+          onclick: async () => {
+            if (!(await confirmDialog('Suspendre le compte',
+              `${comment.username} pourra encore écouter, mais ne pourra plus publier.`, 'Suspendre'))) return;
+            act(() => api.patch(`/api/studio/users/${comment.user_id}`, { status: 'suspended' }), 'Compte suspendu.');
+          },
+        }),
+      ),
+    )),
+  );
+}
+
+function modPlaylists(playlists, act) {
+  if (!playlists.length) return h('div', { class: 'empty', text: 'Aucune playlist publique.' });
+
+  const head = h('tr', {}, ...['Playlist', 'Auteur', 'Pièces', 'Signalements', 'État', ''].map((l) => h('th', { text: l })));
+
+  const body = h('tbody', {}, ...playlists.map((pl) => h('tr', {},
+    h('td', {},
+      h('a', { href: `/playlist/${pl.id}`, style: { fontWeight: '500' }, text: pl.name }),
+      pl.description ? h('div', { class: 'pick__sub', text: pl.description }) : null,
+    ),
+    h('td', { class: 'num', text: pl.owner }),
+    h('td', { class: 'num', text: String(pl.item_count) }),
+    h('td', { class: 'num', text: pl.reports ? String(pl.reports) : '—' }),
+    h('td', {}, h('span', {
+      class: `tag ${pl.moderated ? 'tag--on' : 'tag--off'}`, text: pl.moderated ? 'retirée' : 'publique',
+    })),
+    h('td', { class: 'actions' },
+      h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', text: pl.moderated ? 'Remettre' : 'Retirer',
+        onclick: () => act(
+          () => api.patch(`/api/studio/playlists/${pl.id}`, { moderated: !pl.moderated }),
+          pl.moderated ? 'Playlist remise en public.' : 'Playlist retirée du public.',
+        ),
+      }),
+    ),
+  )));
+
+  return h('div', { class: 'tbl__scroll' }, h('table', { class: 'tbl' }, h('thead', {}, head), body));
+}
+
+function modAccounts(flagged, act) {
+  if (!flagged.length) {
+    return h('div', { class: 'empty', text: 'Aucun compte signalé ni restreint. La liste complète est dans l’onglet Auditeurs.' });
+  }
+
+  return frag(...flagged.map((user) => {
+    const note = h('input', { class: 'input', value: user.moderation_note, maxlength: '500', placeholder: 'note interne' });
+
+    return h('article', { class: `case ${user.reports ? 'case--open' : ''}` },
+      h('div', { class: 'case__head' },
+        h('span', { style: { fontWeight: '500' }, text: user.username }),
+        h('span', { class: `tag ${user.status === 'active' ? 'tag--off' : 'tag--on'}`, text: STATUS_LABELS[user.status] ?? user.status }),
+        user.reports ? h('span', { class: 'tag tag--on', text: `${user.reports} signalement(s)` }) : null,
+        h('span', { class: 'label', text: `${user.email} · ${user.comments} réaction(s) · inscrit le ${fmtDate(user.created_at)}` }),
+      ),
+      h('div', { style: { maxWidth: '460px' } }, note),
+      h('div', { class: 'case__actions' },
+        user.status !== 'suspended'
+          ? h('button', {
+              class: 'btn btn--ghost btn--sm', type: 'button', text: 'Suspendre',
+              onclick: () => act(() => api.patch(`/api/studio/users/${user.id}`, { status: 'suspended', moderation_note: note.value }), 'Compte suspendu.'),
+            })
+          : null,
+        user.status !== 'banned'
+          ? h('button', {
+              class: 'btn btn--ghost btn--sm btn--danger', type: 'button', text: 'Fermer le compte',
+              onclick: async () => {
+                if (!(await confirmDialog('Fermer le compte',
+                  `${user.username} ne pourra plus se connecter. Ses écoutes et ses playlists restent en base.`, 'Fermer'))) return;
+                act(() => api.patch(`/api/studio/users/${user.id}`, { status: 'banned', moderation_note: note.value }), 'Compte fermé.');
+              },
+            })
+          : null,
+        user.status !== 'active'
+          ? h('button', {
+              class: 'btn btn--sm', type: 'button', text: 'Réactiver',
+              onclick: () => act(() => api.patch(`/api/studio/users/${user.id}`, { status: 'active', moderation_note: note.value }), 'Compte réactivé.'),
+            })
+          : null,
+        h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button', text: 'Enregistrer la note',
+          onclick: () => act(() => api.patch(`/api/studio/users/${user.id}`, { moderation_note: note.value }), 'Note enregistrée.'),
+        }),
+      ),
+    );
+  }));
+}
+
+function modLog() {
+  const box = h('div', {}, h('div', { class: 'empty', text: 'Chargement…' }));
+
+  api.get('/api/studio/log').then(({ entries }) => render(box,
+    entries.length
+      ? frag(
+          h('p', { class: 'label', style: { marginBottom: '14px' }, text: `${entries.length} dernière(s) décision(s)` }),
+          ...entries.map((entry) => h('div', { class: 'logline' },
+            h('span', { text: fmtDateTime(entry.created_at) }),
+            h('b', { text: entry.admin ?? '—' }),
+            h('span', {},
+              ACTION_LABELS[entry.action] ?? entry.action,
+              entry.detail ? ` — ${entry.detail}` : '',
+            ),
+          )),
+        )
+      : h('div', { class: 'empty', text: 'Aucune décision de modération enregistrée.' }),
+  )).catch((err) => render(box, h('div', { class: 'notice', text: err.message })));
+
+  return box;
+}
+
 /* -------------------------------------------------------------- auditeurs */
 
 async function panelUsers(box) {
@@ -608,7 +1025,8 @@ async function panelUsers(box) {
 
   const load = async () => {
     const { users } = await api.get('/api/studio/users');
-    const head = h('tr', {}, ...['Pseudo', 'E-mail', 'Rôle', 'Notes', 'Playlists', 'Inscription', ''].map((l) => h('th', { text: l })));
+    const head = h('tr', {}, ...['Pseudo', 'E-mail', 'Rôle', 'État', 'Réactions', 'Écoutes', 'Playlists', 'Inscription', '']
+      .map((l) => h('th', { text: l })));
 
     const body = h('tbody', {}, ...users.map((u) => {
       const select = h('select', { class: 'select' },
@@ -622,11 +1040,28 @@ async function panelUsers(box) {
         } catch (err) { toast(err.message, 'error'); await load(); }
       });
 
+      const status = h('select', { class: 'select' },
+        h('option', { value: 'active', text: 'actif', selected: u.status === 'active' }),
+        h('option', { value: 'suspended', text: 'suspendu', selected: u.status === 'suspended' }),
+        h('option', { value: 'banned', text: 'fermé', selected: u.status === 'banned' }),
+      );
+      status.addEventListener('change', async () => {
+        try {
+          await api.patch(`/api/studio/users/${u.id}`, { status: status.value });
+          toast(status.value === 'active' ? 'Compte réactivé.' : 'État du compte mis à jour.');
+        } catch (err) { toast(err.message, 'error'); await load(); }
+      });
+
       return h('tr', {},
-        h('td', { text: u.username }),
+        h('td', {},
+          u.username,
+          u.moderation_note ? h('div', { class: 'pick__sub', text: u.moderation_note }) : null,
+        ),
         h('td', { class: 'num', text: u.email }),
         h('td', {}, u.id === store.user.id ? h('span', { class: 'tag tag--on', text: 'vous' }) : select),
-        h('td', { class: 'num', text: String(u.ratings) }),
+        h('td', {}, u.id === store.user.id ? h('span', { class: 'tag tag--off', text: 'actif' }) : status),
+        h('td', { class: 'num', text: String(u.comments) }),
+        h('td', { class: 'num', text: String(u.plays) }),
         h('td', { class: 'num', text: String(u.playlists) }),
         h('td', { class: 'num', text: fmtDate(u.created_at) }),
         h('td', { class: 'actions' },

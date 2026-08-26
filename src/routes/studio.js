@@ -296,13 +296,263 @@ router.put('/series/:id/order', (req, res) => {
   res.json({ episodes: episodes.map((e) => serializeEpisode(e, null)) });
 });
 
+/* ----------------------------------------------------------------- stats */
+
+/** Fills the gaps so a quiet day is a zero, not a missing point. */
+function dailySeries(rows, days = 30) {
+  const counts = new Map(rows.map((r) => [r.day, r.n]));
+  const out = [];
+  const today = new Date();
+
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const date = new Date(today);
+    date.setUTCDate(today.getUTCDate() - i);
+    const day = date.toISOString().slice(0, 10);
+    out.push({ day, n: counts.get(day) ?? 0 });
+  }
+  return out;
+}
+
+router.get('/stats', (_req, res) => {
+  const one = (sql) => db.prepare(sql).get().n;
+
+  const completion = db
+    .prepare('SELECT COUNT(*) AS started, COALESCE(SUM(completed), 0) AS finished FROM progress')
+    .get();
+
+  res.json({
+    totals: {
+      episodes: one('SELECT COUNT(*) AS n FROM episodes'),
+      published: one('SELECT COUNT(*) AS n FROM episodes WHERE published = 1'),
+      drafts: one('SELECT COUNT(*) AS n FROM episodes WHERE published = 0'),
+      series: one('SELECT COUNT(*) AS n FROM series'),
+      users: one('SELECT COUNT(*) AS n FROM users'),
+      suspended: one(`SELECT COUNT(*) AS n FROM users WHERE status <> 'active'`),
+      new_users_30d: one(`SELECT COUNT(*) AS n FROM users WHERE created_at > datetime('now', '-30 days')`),
+      playlists: one('SELECT COUNT(*) AS n FROM playlists'),
+      public_playlists: one('SELECT COUNT(*) AS n FROM playlists WHERE is_public = 1 AND moderated = 0'),
+      ratings: one('SELECT COUNT(*) AS n FROM ratings'),
+      comments: one('SELECT COUNT(*) AS n FROM comments'),
+      comments_hidden: one(`SELECT COUNT(*) AS n FROM comments WHERE status = 'hidden'`),
+      reports_open: one(`SELECT COUNT(*) AS n FROM reports WHERE status = 'open'`),
+      plays: one('SELECT COUNT(*) AS n FROM plays'),
+      plays_7d: one(`SELECT COUNT(*) AS n FROM plays WHERE played_at > datetime('now', '-7 days')`),
+      plays_30d: one(`SELECT COUNT(*) AS n FROM plays WHERE played_at > datetime('now', '-30 days')`),
+      listeners_30d: one(`SELECT COUNT(DISTINCT user_id) AS n FROM plays
+                          WHERE user_id IS NOT NULL AND played_at > datetime('now', '-30 days')`),
+      duration: one('SELECT COALESCE(SUM(duration), 0) AS n FROM episodes WHERE published = 1'),
+      storage: one('SELECT COALESCE(SUM(size), 0) AS n FROM episodes'),
+      // Time actually spent listening: finished pieces count in full, the rest where they stopped.
+      listened: one(`SELECT COALESCE(SUM(CASE WHEN pr.completed = 1 THEN e.duration ELSE pr.position END), 0) AS n
+                     FROM progress pr JOIN episodes e ON e.id = pr.episode_id`),
+      never_played: one(`SELECT COUNT(*) AS n FROM episodes e
+                         WHERE e.published = 1 AND NOT EXISTS (SELECT 1 FROM plays p WHERE p.episode_id = e.id)`),
+      avg_rating: db.prepare('SELECT ROUND(AVG(score), 2) AS n FROM ratings').get().n,
+    },
+
+    completion: {
+      started: completion.started,
+      finished: completion.finished,
+      rate: completion.started ? Math.round((completion.finished / completion.started) * 100) : 0,
+    },
+
+    plays_daily: dailySeries(
+      db.prepare(`SELECT date(played_at) AS day, COUNT(*) AS n FROM plays
+                  WHERE played_at > datetime('now', '-30 days') GROUP BY day`).all(),
+    ),
+
+    signups_daily: dailySeries(
+      db.prepare(`SELECT date(created_at) AS day, COUNT(*) AS n FROM users
+                  WHERE created_at > datetime('now', '-30 days') GROUP BY day`).all(),
+    ),
+
+    ratings_spread: db.prepare('SELECT score, COUNT(*) AS n FROM ratings GROUP BY score ORDER BY score').all(),
+
+    top: db
+      .prepare(`SELECT e.title, e.slug, e.duration,
+                  (SELECT COUNT(*) FROM plays p WHERE p.episode_id = e.id)                          AS plays,
+                  (SELECT COUNT(*) FROM progress pr WHERE pr.episode_id = e.id)                     AS started,
+                  (SELECT COUNT(*) FROM progress pr WHERE pr.episode_id = e.id AND pr.completed = 1) AS finished,
+                  (SELECT ROUND(AVG(r.score), 2) FROM ratings r WHERE r.episode_id = e.id)          AS rating_avg
+                FROM episodes e WHERE e.published = 1
+                ORDER BY plays DESC, e.title LIMIT 10`)
+      .all(),
+
+    tags: topTags(),
+    recent_users: db.prepare('SELECT username, created_at, role, status FROM users ORDER BY created_at DESC LIMIT 6').all(),
+  });
+});
+
+/** Themes ranked by the listening they actually pulled in, not by how often they are typed. */
+function topTags() {
+  const rows = db
+    .prepare(`SELECT e.tags, (SELECT COUNT(*) FROM plays p WHERE p.episode_id = e.id) AS plays
+              FROM episodes e WHERE e.published = 1 AND e.tags <> ''`)
+    .all();
+
+  const counts = new Map();
+  for (const { tags, plays } of rows) {
+    for (const tag of tags.split(',')) {
+      const entry = counts.get(tag) ?? { tag, episodes: 0, plays: 0 };
+      entry.episodes += 1;
+      entry.plays += plays;
+      counts.set(tag, entry);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.plays - a.plays || b.episodes - a.episodes).slice(0, 10);
+}
+
+/* ------------------------------------------------------------ modération */
+
+const logAction = (adminId, action, targetType, targetId, detail = '') =>
+  db.prepare('INSERT INTO mod_actions (admin_id, action, target_type, target_id, detail) VALUES (?, ?, ?, ?, ?)')
+    .run(adminId, action, targetType, targetId, detail);
+
+const COMMENT_ROW = `
+  c.id, c.body, c.status, c.created_at,
+  u.id AS user_id, u.username, u.status AS user_status,
+  e.slug AS episode_slug, e.title AS episode_title,
+  (SELECT COUNT(*) FROM reports r WHERE r.target_type = 'comment' AND r.target_id = c.id AND r.status = 'open') AS reports
+`;
+
+const commentQuery = (where) => `
+  SELECT ${COMMENT_ROW} FROM comments c
+  JOIN users u ON u.id = c.user_id
+  JOIN episodes e ON e.id = c.episode_id
+  ${where} ORDER BY c.created_at DESC LIMIT 100
+`;
+
+/** Attaches a readable preview to each report, so the queue can be judged at a glance. */
+function hydrateReport(report) {
+  const previews = {
+    comment: () => {
+      const row = db
+        .prepare(`SELECT c.body, c.status, u.username, e.title, e.slug FROM comments c
+                  JOIN users u ON u.id = c.user_id JOIN episodes e ON e.id = c.episode_id WHERE c.id = ?`)
+        .get(report.target_id);
+      return row
+        ? { label: `« ${row.body.slice(0, 140)} »`, meta: `${row.username} · ${row.title}`, link: `/piece/${row.slug}`, gone: false, status: row.status }
+        : null;
+    },
+    playlist: () => {
+      const row = db
+        .prepare('SELECT p.name, p.moderated, u.username FROM playlists p JOIN users u ON u.id = p.user_id WHERE p.id = ?')
+        .get(report.target_id);
+      return row
+        ? { label: row.name, meta: `playlist de ${row.username}`, link: `/playlist/${report.target_id}`, gone: false, status: row.moderated ? 'hidden' : 'visible' }
+        : null;
+    },
+    user: () => {
+      const row = db.prepare('SELECT username, status FROM users WHERE id = ?').get(report.target_id);
+      return row ? { label: row.username, meta: 'compte', link: null, gone: false, status: row.status } : null;
+    },
+  };
+
+  return {
+    ...report,
+    target: previews[report.target_type]?.() ?? { label: 'élément supprimé', meta: '', link: null, gone: true, status: null },
+  };
+}
+
+router.get('/moderation', (_req, res) => {
+  const reports = db
+    .prepare(`SELECT r.*, u.username AS reporter FROM reports r
+              LEFT JOIN users u ON u.id = r.reporter_id
+              ORDER BY r.status = 'open' DESC, r.created_at DESC LIMIT 100`)
+    .all()
+    .map(hydrateReport);
+
+  const comments = db.prepare(commentQuery('')).all();
+
+  const playlists = db
+    .prepare(`SELECT p.id, p.name, p.description, p.is_public, p.moderated, p.updated_at, u.username AS owner,
+                (SELECT COUNT(*) FROM playlist_items i WHERE i.playlist_id = p.id) AS item_count,
+                (SELECT COUNT(*) FROM reports r WHERE r.target_type = 'playlist' AND r.target_id = p.id AND r.status = 'open') AS reports
+              FROM playlists p JOIN users u ON u.id = p.user_id
+              WHERE p.is_public = 1 ORDER BY p.updated_at DESC LIMIT 60`)
+    .all();
+
+  const flagged = db
+    .prepare(`SELECT u.id, u.username, u.email, u.status, u.moderation_note, u.created_at,
+                (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) AS comments,
+                (SELECT COUNT(*) FROM reports r WHERE r.target_type = 'user' AND r.target_id = u.id AND r.status = 'open') AS reports
+              FROM users u
+              WHERE u.status <> 'active'
+                 OR EXISTS (SELECT 1 FROM reports r WHERE r.target_type = 'user' AND r.target_id = u.id AND r.status = 'open')
+              ORDER BY u.created_at DESC`)
+    .all();
+
+  res.json({ reports, comments, playlists, flagged });
+});
+
+router.get('/log', (_req, res) => {
+  const entries = db
+    .prepare(`SELECT m.*, u.username AS admin FROM mod_actions m
+              LEFT JOIN users u ON u.id = m.admin_id ORDER BY m.created_at DESC LIMIT 120`)
+    .all();
+  res.json({ entries });
+});
+
+router.patch('/comments/:id', (req, res) => {
+  const id = asInt(req.params.id);
+  const status = req.body?.status === 'hidden' ? 'hidden' : 'visible';
+  const comment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+  if (!comment) return res.status(404).json({ error: 'Message introuvable.' });
+
+  db.prepare('UPDATE comments SET status = ? WHERE id = ?').run(status, id);
+  logAction(req.user.id, status === 'hidden' ? 'comment.hide' : 'comment.show', 'comment', id, comment.body.slice(0, 120));
+
+  res.json({ comment: db.prepare(commentQuery('WHERE c.id = @id')).get({ id }) });
+});
+
+router.delete('/comments/:id', (req, res) => {
+  const id = asInt(req.params.id);
+  const comment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+  if (!comment) return res.status(404).json({ error: 'Message introuvable.' });
+
+  db.prepare('DELETE FROM comments WHERE id = ?').run(id);
+  db.prepare(`UPDATE reports SET status = 'resolved', handled_by = ?, handled_at = datetime('now')
+              WHERE target_type = 'comment' AND target_id = ? AND status = 'open'`).run(req.user.id, id);
+  logAction(req.user.id, 'comment.delete', 'comment', id, comment.body.slice(0, 120));
+
+  res.json({ ok: true });
+});
+
+router.patch('/reports/:id', (req, res) => {
+  const id = asInt(req.params.id);
+  const status = ['resolved', 'dismissed', 'open'].includes(req.body?.status) ? req.body.status : 'resolved';
+  if (!db.prepare('SELECT 1 FROM reports WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'Signalement introuvable.' });
+  }
+
+  db.prepare(`UPDATE reports SET status = ?, handled_by = ?, handled_at = datetime('now') WHERE id = ?`)
+    .run(status, req.user.id, id);
+  logAction(req.user.id, `report.${status}`, 'report', id);
+
+  res.json({ ok: true });
+});
+
+router.patch('/playlists/:id', (req, res) => {
+  const id = asInt(req.params.id);
+  const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+  if (!playlist) return res.status(404).json({ error: 'Playlist introuvable.' });
+
+  const moderated = bool(req.body?.moderated);
+  db.prepare('UPDATE playlists SET moderated = ? WHERE id = ?').run(moderated, id);
+  logAction(req.user.id, moderated ? 'playlist.hide' : 'playlist.show', 'playlist', id, playlist.name);
+
+  res.json({ ok: true, moderated: Boolean(moderated) });
+});
+
 /* ----------------------------------------------------------------- users */
 
 router.get('/users', (_req, res) => {
   const users = db
-    .prepare(`SELECT u.id, u.email, u.username, u.role, u.created_at,
-                (SELECT COUNT(*) FROM ratings r WHERE r.user_id = u.id)   AS ratings,
-                (SELECT COUNT(*) FROM playlists p WHERE p.user_id = u.id) AS playlists
+    .prepare(`SELECT u.id, u.email, u.username, u.role, u.status, u.moderation_note, u.created_at,
+                (SELECT COUNT(*) FROM ratings r WHERE r.user_id = u.id)     AS ratings,
+                (SELECT COUNT(*) FROM playlists p WHERE p.user_id = u.id)   AS playlists,
+                (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id)    AS comments,
+                (SELECT COUNT(*) FROM plays p WHERE p.user_id = u.id)       AS plays
               FROM users u ORDER BY u.created_at DESC`)
     .all();
   res.json({ users });
@@ -310,46 +560,45 @@ router.get('/users', (_req, res) => {
 
 router.patch('/users/:id', (req, res) => {
   const id = asInt(req.params.id);
-  const role = req.body?.role === 'admin' ? 'admin' : 'listener';
-  if (id === req.user.id && role !== 'admin') {
-    return res.status(400).json({ error: 'Impossible de retirer vos propres droits.' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'Compte introuvable.' });
+
+  if (req.body?.role !== undefined) {
+    const role = req.body.role === 'admin' ? 'admin' : 'listener';
+    if (id === req.user.id && role !== 'admin') {
+      return res.status(400).json({ error: 'Impossible de retirer vos propres droits.' });
+    }
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+    logAction(req.user.id, `user.role.${role}`, 'user', id, user.username);
   }
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+
+  if (req.body?.status !== undefined) {
+    const status = ['active', 'suspended', 'banned'].includes(req.body.status) ? req.body.status : 'active';
+    if (id === req.user.id && status !== 'active') {
+      return res.status(400).json({ error: 'Impossible de vous suspendre vous-même.' });
+    }
+    db.prepare('UPDATE users SET status = ? WHERE id = ?').run(status, id);
+    // A banned account should not keep an open session anywhere.
+    if (status === 'banned') db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+    logAction(req.user.id, `user.${status}`, 'user', id, user.username);
+  }
+
+  if (req.body?.moderation_note !== undefined) {
+    db.prepare('UPDATE users SET moderation_note = ? WHERE id = ?').run(str(req.body.moderation_note, 500), id);
+  }
+
   res.json({ ok: true });
 });
 
 router.delete('/users/:id', (req, res) => {
   const id = asInt(req.params.id);
   if (id === req.user.id) return res.status(400).json({ error: 'Impossible de supprimer votre propre compte ici.' });
+
+  const user = db.prepare('SELECT username FROM users WHERE id = ?').get(id);
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  logAction(req.user.id, 'user.delete', 'user', id, user?.username ?? '');
+
   res.json({ ok: true });
-});
-
-/* ----------------------------------------------------------------- stats */
-
-router.get('/stats', (_req, res) => {
-  const one = (sql) => db.prepare(sql).get().n;
-  res.json({
-    totals: {
-      episodes: one('SELECT COUNT(*) AS n FROM episodes'),
-      published: one('SELECT COUNT(*) AS n FROM episodes WHERE published = 1'),
-      series: one('SELECT COUNT(*) AS n FROM series'),
-      users: one('SELECT COUNT(*) AS n FROM users'),
-      playlists: one('SELECT COUNT(*) AS n FROM playlists'),
-      ratings: one('SELECT COUNT(*) AS n FROM ratings'),
-      plays: one('SELECT COUNT(*) AS n FROM plays'),
-      plays_7d: one(`SELECT COUNT(*) AS n FROM plays WHERE played_at > datetime('now', '-7 days')`),
-      duration: one('SELECT COALESCE(SUM(duration), 0) AS n FROM episodes WHERE published = 1'),
-      storage: one('SELECT COALESCE(SUM(size), 0) AS n FROM episodes'),
-    },
-    top: db
-      .prepare(`SELECT e.title, e.slug, COUNT(p.id) AS plays,
-                  (SELECT ROUND(AVG(r.score), 2) FROM ratings r WHERE r.episode_id = e.id) AS rating_avg
-                FROM episodes e LEFT JOIN plays p ON p.episode_id = e.id
-                GROUP BY e.id ORDER BY plays DESC, e.title LIMIT 8`)
-      .all(),
-    recent_users: db.prepare('SELECT username, created_at, role FROM users ORDER BY created_at DESC LIMIT 6').all(),
-  });
 });
 
 export default router;

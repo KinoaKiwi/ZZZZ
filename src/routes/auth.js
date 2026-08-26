@@ -7,7 +7,7 @@ const router = Router();
 
 const publicUser = (u) => ({
   id: u.id, email: u.email, username: u.username,
-  role: u.role, bio: u.bio, created_at: u.created_at,
+  role: u.role, bio: u.bio, status: u.status ?? 'active', created_at: u.created_at,
 });
 
 router.get('/me', (req, res) => {
@@ -64,6 +64,7 @@ router.post('/login', (req, res) => {
   if (!user || !checkPassword(password, user.password)) {
     return res.status(401).json({ error: 'Identifiants incorrects.' });
   }
+  if (user.status === 'banned') return res.status(403).json({ error: 'Ce compte a été fermé.' });
 
   startSession(res, user.id, req.secure);
   res.json({ user: publicUser(user) });

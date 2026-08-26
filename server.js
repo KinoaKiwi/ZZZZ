@@ -9,6 +9,7 @@ import { attachUser } from './src/auth.js';
 import authRoutes from './src/routes/auth.js';
 import catalogRoutes from './src/routes/catalog.js';
 import playlistRoutes from './src/routes/playlists.js';
+import communityRoutes from './src/routes/community.js';
 import studioRoutes from './src/routes/studio.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +49,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/studio', studioRoutes);
 app.use('/api', catalogRoutes);
 app.use('/api', playlistRoutes);
+app.use('/api', communityRoutes);
 
 app.use('/media/audio', express.static(paths.audio, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }));
 app.use('/media/covers', express.static(paths.covers, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }));

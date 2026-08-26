@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireUser } from '../auth.js';
+import { requireUser, requireActiveUser } from '../auth.js';
 import { asInt, str } from '../util.js';
 
 const router = Router();
@@ -177,7 +177,7 @@ function ratingSummary(episodeId, user) {
 
 const publishedEpisode = (id) => db.prepare('SELECT id FROM episodes WHERE id = ? AND published = 1').get(id);
 
-router.put('/episodes/:id/rating', requireUser, (req, res) => {
+router.put('/episodes/:id/rating', requireActiveUser, (req, res) => {
   const id = asInt(req.params.id);
   const score = asInt(req.body?.score);
   if (score < 1 || score > 5) return res.status(400).json({ error: 'Note attendue entre 1 et 5.' });

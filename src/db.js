@@ -168,4 +168,56 @@ CREATE INDEX IF NOT EXISTS idx_plays_episode    ON plays(episode_id, played_at);
 CREATE INDEX IF NOT EXISTS idx_plays_user       ON plays(user_id, played_at);
 `);
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS comments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body       TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'visible' CHECK (status IN ('visible','hidden')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Anything a listener flags lands here and waits in the studio queue.
+CREATE TABLE IF NOT EXISTS reports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('comment','playlist','user')),
+  target_id   INTEGER NOT NULL,
+  reason      TEXT NOT NULL DEFAULT '',
+  detail      TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','dismissed')),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  handled_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  handled_at  TEXT
+);
+
+-- Every moderation gesture is written down, so a decision can be re-read later.
+CREATE TABLE IF NOT EXISTS mod_actions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action      TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id   INTEGER,
+  detail      TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_episode ON comments(episode_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_user    ON comments(user_id);
+CREATE INDEX IF NOT EXISTS idx_reports_status   ON reports(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_mod_actions      ON mod_actions(created_at);
+`);
+
+/** Adds a column to an existing table, once. */
+function addColumn(table, column, ddl) {
+  if (!hasColumn(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+// active | suspended (cannot post) | banned (cannot sign in)
+addColumn('users', 'status', `TEXT NOT NULL DEFAULT 'active'`);
+addColumn('users', 'moderation_note', `TEXT NOT NULL DEFAULT ''`);
+// A playlist the studio has taken out of the public list.
+addColumn('playlists', 'moderated', 'INTEGER NOT NULL DEFAULT 0');
+
 db.prepare(`DELETE FROM sessions WHERE expires_at < datetime('now')`).run();

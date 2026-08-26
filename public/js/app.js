@@ -346,6 +346,8 @@ async function viewEpisode(slug) {
               )
             : null,
 
+          commentsSection(episode),
+
           siblings.length
             ? frag(
                 h('h2', { class: 'label', style: { marginTop: '48px' }, text: series ? 'Dans la même série' : 'À écouter aussi' }),
@@ -377,6 +379,137 @@ async function viewEpisode(slug) {
 }
 
 const def = (term, value) => h('div', {}, h('dt', { text: term }), h('dd', { text: value }));
+
+/* ------------------------------------------------------------- réactions */
+
+const REPORT_REASONS = [
+  ['spam', 'Spam ou publicité'],
+  ['haine', 'Propos haineux'],
+  ['harcelement', 'Harcèlement'],
+  ['hors-sujet', 'Hors sujet'],
+  ['droits', 'Problème de droits'],
+  ['autre', 'Autre'],
+];
+
+function reportDialog(targetType, targetId, label) {
+  if (!requireAccount()) return;
+
+  modal('Signaler', (close) => {
+    const reason = h('select', { class: 'select' },
+      ...REPORT_REASONS.map(([value, text]) => h('option', { value, text })),
+    );
+    const detail = h('textarea', { class: 'textarea', maxlength: '600', placeholder: 'précisez si besoin' });
+
+    const form = h('form', {},
+      h('p', { class: 'muted', style: { marginTop: '0' }, text: `À propos de : ${label}` }),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Motif' }), reason),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Détail' }), detail),
+      h('p', { class: 'label', text: 'le signalement part au studio, qui tranche' }),
+      h('div', { class: 'modal__actions' },
+        h('button', { class: 'btn btn--ghost', type: 'button', text: 'Annuler', onclick: close }),
+        h('button', { class: 'btn btn--solid', type: 'submit', text: 'Envoyer' }),
+      ),
+    );
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api.post('/api/reports', {
+          target_type: targetType, target_id: targetId, reason: reason.value, detail: detail.value,
+        });
+        close();
+        toast('Signalement envoyé.');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
+    return form;
+  });
+}
+
+function commentRow(comment, reload) {
+  const tools = h('div', { class: 'comment__tools' });
+
+  if (comment.can_delete) {
+    tools.append(h('button', {
+      type: 'button', text: 'Supprimer',
+      onclick: async () => {
+        if (!(await confirmDialog('Supprimer le message', 'Ce message sera définitivement effacé.'))) return;
+        await api.del(`/api/comments/${comment.id}`);
+        await reload();
+      },
+    }));
+  }
+  if (state.user && !comment.is_mine) {
+    tools.append(h('button', {
+      type: 'button', text: 'Signaler',
+      onclick: () => reportDialog('comment', comment.id, `message de ${comment.author.username}`),
+    }));
+  }
+
+  return h('article', { class: `comment ${comment.status === 'hidden' ? 'comment--hidden' : ''}` },
+    h('div', { class: 'comment__head' },
+      h('span', { class: 'comment__who', text: comment.author.username }),
+      h('span', { class: 'label', text: fmtDateTime(comment.created_at) }),
+      comment.status === 'hidden' ? h('span', { class: 'flag', text: 'masqué par la modération' }) : null,
+    ),
+    h('p', { class: 'comment__body', text: comment.body }),
+    tools.childElementCount ? tools : null,
+  );
+}
+
+function commentsSection(episode) {
+  const heading = h('h2', { class: 'label', text: 'Réactions' });
+  const list = h('div');
+  const box = h('section', { class: 'comments' }, heading, list);
+
+  const reload = async () => {
+    const { comments } = await api.get(`/api/episodes/${episode.slug}/comments`);
+    heading.textContent = comments.length
+      ? `Réactions — ${comments.length}`
+      : 'Réactions';
+    clear(list);
+    if (!comments.length) {
+      list.append(h('div', { class: 'empty', style: { padding: '26px 0' }, text: 'Personne n’a encore réagi.' }));
+    } else {
+      comments.forEach((comment) => list.append(commentRow(comment, reload)));
+    }
+  };
+
+  if (!state.user) {
+    box.append(h('p', { class: 'muted', style: { marginTop: '18px' } },
+      'Connectez-vous pour laisser une réaction. ', link('/connexion', 'Se connecter', 'accent')));
+  } else if (state.user.status !== 'active') {
+    box.append(h('div', { class: 'notice', style: { marginTop: '18px' },
+      text: 'Votre compte est suspendu : vous pouvez écouter, mais plus publier.' }));
+  } else {
+    const body = h('textarea', { class: 'textarea', maxlength: '1500', placeholder: 'ce que la pièce vous a fait…' });
+    const counter = h('span', { class: 'label', text: '0 / 1500' });
+    body.addEventListener('input', () => { counter.textContent = `${body.value.length} / 1500`; });
+
+    const form = h('form', { class: 'composer' },
+      body,
+      h('div', { class: 'composer__foot' }, counter, h('button', { class: 'btn', type: 'submit', text: 'Publier' })),
+    );
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (body.value.trim().length < 2) return;
+      try {
+        await api.post(`/api/episodes/${episode.id}/comments`, { body: body.value });
+        body.value = '';
+        counter.textContent = '0 / 1500';
+        await reload();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
+    box.append(form);
+  }
+
+  reload().catch(() => {});
+  return box;
+}
+
+
 
 function ratingWidget(episode, summary, repaint) {
   const mine = summary.my_rating;
@@ -690,7 +823,10 @@ async function viewPlaylist(id) {
                 navigate('/playlists');
               },
             })
-          : null,
+          : h('button', {
+              class: 'btn btn--ghost', type: 'button', text: 'Signaler',
+              onclick: () => reportDialog('playlist', playlist.id, playlist.name),
+            }),
       ),
 
       playlist.is_mine ? h('p', { class: 'label', text: 'glissez les lignes pour réordonner' }) : null,
@@ -836,6 +972,13 @@ async function viewAccount() {
         h('p', { class: 'muted mono', style: { marginTop: '12px' },
           text: `${state.user.email} · inscrit le ${fmtDate(state.user.created_at)}` }),
       ),
+
+      state.user.status !== 'active'
+        ? h('div', { class: 'notice',
+            text: state.user.status === 'suspended'
+              ? 'Compte suspendu : l’écoute reste ouverte, mais vous ne pouvez plus publier de réaction, de note ni de playlist publique.'
+              : 'Compte fermé.' })
+        : null,
 
       h('div', { class: 'station__actions' },
         state.user.role === 'admin' ? h('a', { class: 'btn btn--solid', href: '/studio', text: 'Ouvrir le studio' }) : null,

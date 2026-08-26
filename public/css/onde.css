@@ -236,7 +236,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* On narrow screens the navigation drops to its own row under the brand. */
 @media (max-width: 700px) {
-  .masthead__in, .studio-bar {
+  .masthead__in {
     height: auto;
     flex-wrap: wrap;
     gap: 6px 16px;
@@ -706,6 +706,66 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .pick-row:hover { color: var(--accent); }
 .pick-row .list-row__main { flex: 1 1 auto; min-width: 0; }
+
+/* ---------------------------------------------------------------- réactions */
+
+.comments { margin-top: 48px; max-width: 66ch; }
+.comments > h2 { margin: 0 0 4px; }
+
+.comment {
+  padding: 16px 0;
+  border-top: 1px solid var(--rule-soft);
+}
+.comment__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.comment__who { font-size: 14px; font-weight: 500; letter-spacing: -.01em; }
+.comment__body { margin: 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment__tools {
+  display: flex;
+  gap: 14px;
+  margin-top: 9px;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.comment:hover .comment__tools, .comment:focus-within .comment__tools { opacity: 1; }
+.comment__tools button {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+.comment__tools button:hover { color: var(--accent); }
+.comment--hidden { opacity: .62; }
+.comment--hidden .comment__body { text-decoration: line-through solid var(--rule); }
+
+.flag {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  font: 400 9.5px/1.4 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.composer { margin-top: 22px; }
+.composer textarea { min-height: 92px; }
+.composer__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
 
 /* ------------------------------------------------------------------- pages */
 

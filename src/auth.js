@@ -11,7 +11,7 @@ const insertSession = db.prepare(`
 `);
 
 const findSession = db.prepare(`
-  SELECT u.id, u.email, u.username, u.role, u.bio, u.created_at
+  SELECT u.id, u.email, u.username, u.role, u.bio, u.status, u.created_at
   FROM sessions s JOIN users u ON u.id = s.user_id
   WHERE s.token = ? AND s.expires_at > datetime('now')
 `);
@@ -47,6 +47,16 @@ export function attachUser(req, _res, next) {
 
 export function requireUser(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Connexion requise.' });
+  next();
+}
+
+/** Posting anything public also requires an account in good standing. */
+export function requireActiveUser(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Connexion requise.' });
+  if (req.user.status === 'banned') return res.status(403).json({ error: 'Ce compte a été fermé.' });
+  if (req.user.status === 'suspended') {
+    return res.status(403).json({ error: 'Votre compte est suspendu : vous pouvez écouter, mais plus publier.' });
+  }
   next();
 }
 

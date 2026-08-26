@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireUser } from '../auth.js';
+import { requireUser, requireActiveUser } from '../auth.js';
 import { asInt, str, bool } from '../util.js';
 import { serializeEpisode } from './catalog.js';
 
 const router = Router();
 
 const LIST_COLS = `
-  p.id, p.name, p.description, p.is_public, p.created_at, p.updated_at,
+  p.id, p.name, p.description, p.is_public, p.moderated, p.created_at, p.updated_at,
   u.username AS owner, p.user_id,
   (SELECT COUNT(*) FROM playlist_items i
     JOIN episodes e ON e.id = i.episode_id
@@ -17,7 +17,7 @@ const LIST_COLS = `
     WHERE i.playlist_id = p.id AND e.published = 1) AS total_duration
 `;
 
-const shape = (row) => ({ ...row, is_public: Boolean(row.is_public) });
+const shape = (row) => ({ ...row, is_public: Boolean(row.is_public), moderated: Boolean(row.moderated) });
 
 const ITEM_COLS = `
   i.id AS item_id, i.position,
@@ -59,7 +59,7 @@ router.get('/playlists', requireUser, (req, res) => {
 router.get('/playlists/public', (_req, res) => {
   const rows = db
     .prepare(`SELECT ${LIST_COLS} FROM playlists p JOIN users u ON u.id = p.user_id
-              WHERE p.is_public = 1 ORDER BY p.updated_at DESC LIMIT 60`)
+              WHERE p.is_public = 1 AND p.moderated = 0 ORDER BY p.updated_at DESC LIMIT 60`)
     .all();
   res.json({ playlists: rows.map(shape) });
 });
@@ -80,7 +80,8 @@ router.get('/playlists/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Playlist introuvable.' });
 
   const mine = Boolean(req.user && row.user_id === req.user.id);
-  if (!row.is_public && !mine) return res.status(404).json({ error: 'Playlist introuvable.' });
+  const visible = row.is_public && !row.moderated;
+  if (!visible && !mine && req.user?.role !== 'admin') return res.status(404).json({ error: 'Playlist introuvable.' });
 
   res.json({ playlist: { ...shape(row), is_mine: mine }, items: items(id, req.user) });
 });
