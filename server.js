@@ -4,10 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 
-import { paths, seedDemoStations } from './src/db.js';
+import { paths } from './src/db.js';
 import { attachUser } from './src/auth.js';
 import authRoutes from './src/routes/auth.js';
-import stationRoutes from './src/routes/stations.js';
+import catalogRoutes from './src/routes/catalog.js';
 import playlistRoutes from './src/routes/playlists.js';
 import studioRoutes from './src/routes/studio.js';
 
@@ -46,7 +46,7 @@ app.use(attachUser);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/studio', studioRoutes);
-app.use('/api', stationRoutes);
+app.use('/api', catalogRoutes);
 app.use('/api', playlistRoutes);
 
 app.use('/media/audio', express.static(paths.audio, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }));
@@ -68,19 +68,17 @@ app.use((req, res) => res.status(404).json({ error: 'Ressource introuvable.' }))
 app.use((err, _req, res, _next) => {
   if (err instanceof multer.MulterError) {
     const message =
-      err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (120 Mo maximum).' : `Envoi refuse : ${err.message}`;
+      err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (400 Mo maximum).' : `Envoi refuse : ${err.message}`;
     return res.status(400).json({ error: message });
   }
-  if (err?.message?.startsWith('Format non accepte')) return res.status(400).json({ error: err.message });
+  if (err?.message?.startsWith('Format non accepté')) return res.status(400).json({ error: err.message });
 
   console.error(err);
   res.status(500).json({ error: 'Erreur interne du serveur.' });
 });
 
 const port = Number(process.env.PORT) || 3000;
-const seeded = seedDemoStations();
 
 app.listen(port, () => {
   console.log(`  Onde\n  ecoute      http://localhost:${port}\n  studio      http://localhost:${port}/studio`);
-  if (seeded) console.log(`  ${seeded} stations de demonstration ajoutees (supprimables depuis le studio)`);
 });

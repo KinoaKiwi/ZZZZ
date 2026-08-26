@@ -6,24 +6,24 @@ import { player } from './player.js';
 
 const store = {
   user: null,
-  stations: [],
-  tracks: [],
-  editorBox: null,
-  editing: null,      // station being edited, or null for "new"
-  programme: [],      // tracks of the station being edited
   tab: 'antenne',
+  episodes: [],
+  series: [],
+  editingEpisode: null,
+  editingSeries: null,
+  filters: { q: '', state: '' },
 };
 
 const root = () => document.getElementById('studio');
 
 const TABS = [
   ['antenne', 'Antenne', panelDashboard],
-  ['stations', 'Stations', panelStations],
-  ['titres', 'Titres', panelTracks],
+  ['pieces', 'Pièces', panelEpisodes],
+  ['series', 'Séries', panelSeries],
   ['auditeurs', 'Auditeurs', panelUsers],
 ];
 
-/* ------------------------------------------------------------------ chrome */
+/* ---------------------------------------------------------------- chrome */
 
 function paintNav() {
   const bar = document.getElementById('studio-nav');
@@ -54,7 +54,7 @@ function toggleTheme() {
   try { localStorage.setItem('onde.theme', next); } catch { /* ignore */ }
 }
 
-function paintTabs() {
+function tabBar() {
   const bar = h('div', { class: 'tabs' });
   TABS.forEach(([id, label]) => {
     bar.append(h('button', {
@@ -68,7 +68,7 @@ function paintTabs() {
 async function paintTab() {
   const [, , panel] = TABS.find(([id]) => id === store.tab) ?? TABS[0];
   const body = h('div');
-  render(root(), h('div', { class: 'wrap' }, paintTabs(), body));
+  render(root(), h('div', { class: 'wrap' }, tabBar(), body));
 
   try {
     await panel(body);
@@ -80,14 +80,15 @@ async function paintTab() {
 window.addEventListener('hashchange', () => {
   const id = location.hash.slice(1);
   store.tab = TABS.some(([tab]) => tab === id) ? id : 'antenne';
+  store.editingEpisode = null;
+  store.editingSeries = null;
   paintTab();
 });
 
-/* --------------------------------------------------------------- dashboard */
+/* ------------------------------------------------------------- dashboard */
 
 async function panelDashboard(box) {
   const { totals, top, recent_users: recent } = await api.get('/api/studio/stats');
-
   const card = (label, value) => h('div', {}, h('span', { class: 'label', text: label }), h('b', { text: value }));
 
   render(box, h('section', { class: 'panel' },
@@ -96,25 +97,25 @@ async function panelDashboard(box) {
         h('span', { class: 'label', text: 'Vue d’ensemble' }),
         h('h1', { text: 'Antenne' }),
       ),
-      h('a', { class: 'btn btn--solid', href: '#stations', text: 'Programmer une station' }),
+      h('a', { class: 'btn btn--solid', href: '#pieces', text: 'Déposer une pièce' }),
     ),
 
     h('div', { class: 'cards cards--3' },
-      card('Stations en ligne', `${totals.published} / ${totals.stations}`),
-      card('Titres en bibliothèque', String(totals.tracks)),
-      card('Auditeurs inscrits', String(totals.users)),
+      card('Pièces en ligne', `${totals.published} / ${totals.episodes}`),
+      card('Séries', String(totals.series)),
+      card('Durée publiée', `${(totals.duration / 3600).toFixed(1)} h`),
+      card('Auditeurs', String(totals.users)),
       card('Écoutes (7 jours)', String(totals.plays_7d)),
       card('Écoutes totales', String(totals.plays)),
       card('Notes déposées', String(totals.ratings)),
-      card('Playlists créées', String(totals.playlists)),
       card('Espace audio', fmtSize(totals.storage)),
     ),
 
     h('div', { class: 'section' },
-      h('h2', { text: 'Stations les plus écoutées' }),
+      h('h2', { text: 'Les plus écoutées' }),
       top.length
-        ? table(['Station', 'Écoutes', 'Note'], top.map((row) => [
-            h('a', { href: `/station/${row.slug}`, text: row.name }),
+        ? table(['Pièce', 'Écoutes', 'Note'], top.map((row) => [
+            h('a', { href: `/piece/${row.slug}`, text: row.title }),
             h('span', { class: 'num', text: String(row.plays) }),
             h('span', { class: 'num', text: row.rating_avg ? Number(row.rating_avg).toFixed(1) : '—' }),
           ]))
@@ -135,332 +136,46 @@ async function panelDashboard(box) {
 }
 
 function table(headers, rows) {
-  const thead = h('tr', {}, ...headers.map((label, i) => h('th', {
-    text: label, style: i > 0 && i === headers.length - 1 ? { textAlign: 'right' } : null,
-  })));
-
-  const tbody = h('tbody', {}, ...rows.map((cells) => h('tr', {}, ...cells.map((cell, i) => h('td', {
+  const head = h('tr', {}, ...headers.map((label) => h('th', { text: label })));
+  const body = h('tbody', {}, ...rows.map((cells) => h('tr', {}, ...cells.map((cell, i) => h('td', {
     class: i === cells.length - 1 && cells.length > 1 ? 'num' : '',
   }, cell)))));
-
-  return h('div', { class: 'tbl__scroll' }, h('table', { class: 'tbl' }, h('thead', {}, thead), tbody));
-}
-
-/* ---------------------------------------------------------------- stations */
-
-async function panelStations(box) {
-  const [{ stations }, { tracks }] = await Promise.all([
-    api.get('/api/studio/stations'),
-    api.get('/api/studio/tracks'),
-  ]);
-  store.stations = stations;
-  store.tracks = tracks;
-
-  const editorBox = h('div', { class: 'editor' });
-  const listBox = h('div');
-  store.editorBox = editorBox;
-
-  const openEditor = async (station) => {
-    store.editing = station;
-    store.programme = [];
-    if (station?.kind === 'mixtape') {
-      const data = await api.get(`/api/studio/stations/${station.id}`);
-      store.programme = data.tracks;
-    }
-    render(editorBox, stationEditor(refresh));
-    render(listBox, stationList(openEditor, refresh));
-  };
-
-  const refresh = async () => {
-    const data = await api.get('/api/studio/stations');
-    store.stations = data.stations;
-    render(listBox, stationList(openEditor, refresh));
-  };
-
-  render(box, h('section', { class: 'panel' },
-    h('div', { class: 'panel__head' },
-      h('div', {},
-        h('span', { class: 'label', text: `${stations.length} stations` }),
-        h('h1', { text: 'Stations' }),
-      ),
-      h('button', { class: 'btn btn--solid', type: 'button', onclick: () => openEditor(null) }, icon('plus', 12), 'Nouvelle station'),
-    ),
-    h('div', { class: 'split' }, editorBox, listBox),
-  ));
-
-  await openEditor(null);
-}
-
-function stationList(openEditor, refresh) {
-  if (!store.stations.length) {
-    return h('div', { class: 'empty', text: 'Aucune station. Créez la première à gauche.' });
-  }
-
-  const rows = store.stations.map((s) => [
-    h('div', {},
-      h('a', { href: `/station/${s.slug}`, style: { fontWeight: '500' }, text: s.name }),
-      h('div', { class: 'pick__sub', text: s.tagline || s.genre || '—' }),
-    ),
-    h('span', { class: `tag ${s.published ? 'tag--on' : 'tag--off'}`, text: s.published ? 'en ligne' : 'brouillon' }),
-    h('span', { class: 'tag', text: s.kind === 'live' ? 'direct' : `mixtape ${s.track_count}` }),
-    h('span', { class: 'num', text: String(s.play_count) }),
-    h('span', { class: 'num', text: s.rating_avg ? Number(s.rating_avg).toFixed(1) : '—' }),
-    h('div', { class: 'actions' },
-      h('button', { class: 'btn btn--ghost btn--sm', type: 'button', title: 'Modifier', onclick: () => openEditor(s) }, icon('edit', 11)),
-      h('button', {
-        class: 'btn btn--ghost btn--sm', type: 'button', text: s.published ? 'Retirer' : 'Publier',
-        onclick: async () => {
-          await api.patch(`/api/studio/stations/${s.id}`, { published: !s.published });
-          toast(s.published ? 'Station retirée de la grille.' : 'Station publiée.');
-          await refresh();
-        },
-      }),
-      h('button', {
-        class: 'btn btn--ghost btn--sm btn--danger', type: 'button', title: 'Supprimer',
-        onclick: async () => {
-          if (!(await confirmDialog('Supprimer la station', `« ${s.name} » et son programme seront retirés du site.`))) return;
-          await api.del(`/api/studio/stations/${s.id}`);
-          if (store.editing?.id === s.id) store.editing = null;
-          toast('Station supprimée.');
-          await refresh();
-        },
-      }, icon('trash', 11)),
-    ),
-  ]);
-
-  const head = h('tr', {}, ...['Station', 'État', 'Type', 'Écoutes', 'Note', ''].map((label) => h('th', { text: label })));
-  const body = h('tbody', {}, ...rows.map((cells) => h('tr', {}, ...cells.map((cell) => h('td', {}, cell)))));
-
   return h('div', { class: 'tbl__scroll' }, h('table', { class: 'tbl' }, h('thead', {}, head), body));
 }
 
-function stationEditor(refresh) {
-  const station = store.editing;
-  const isNew = !station;
+/* ---------------------------------------------------------------- pièces */
 
-  const name = h('input', { class: 'input', value: station?.name ?? '', required: true, maxlength: '120' });
-  const tagline = h('input', { class: 'input', value: station?.tagline ?? '', maxlength: '160' });
-  const genre = h('input', { class: 'input', value: station?.genre ?? '', maxlength: '40', placeholder: 'Ambient, Jazz, Rap…' });
-  const description = h('textarea', { class: 'textarea', maxlength: '2000' }, station?.description ?? '');
-  const streamUrl = h('input', { class: 'input', type: 'url', value: station?.stream_url ?? '', placeholder: 'https://…' });
-  const published = h('input', { type: 'checkbox', checked: Boolean(station?.published) });
-
-  const kind = h('select', { class: 'select' },
-    h('option', { value: 'live', text: 'Direct — un flux http(s)', selected: (station?.kind ?? 'live') === 'live' }),
-    h('option', { value: 'mixtape', text: 'Mixtape — vos fichiers', selected: station?.kind === 'mixtape' }),
-  );
-
-  const liveField = h('label', { class: 'field' }, h('span', { class: 'label', text: 'URL du flux' }), streamUrl);
-  const syncKind = () => { liveField.style.display = kind.value === 'live' ? '' : 'none'; };
-  kind.addEventListener('change', syncKind);
-
-  let cover = station?.cover ?? null;
-  const coverPreview = cover
-    ? h('img', { class: 'cover', src: `/media/covers/${cover}`, alt: '' })
-    : h('div', { class: 'cover cover--none', text: 'sans' });
-  const coverBox = h('div', { class: 'cover-pick' }, coverPreview);
-
-  const coverInput = h('input', { type: 'file', accept: 'image/*', hidden: true });
-  coverInput.addEventListener('change', async () => {
-    const file = coverInput.files?.[0];
-    if (!file) return;
-    const form = new FormData();
-    form.append('file', file);
-    try {
-      const data = await api.upload('/api/studio/covers', form);
-      cover = data.cover;
-      render(coverBox,
-        h('img', { class: 'cover', src: data.cover_url, alt: '' }),
-        coverActions(),
-      );
-    } catch (err) { toast(err.message, 'error'); }
-  });
-
-  const coverActions = () => h('div', {},
-    h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Changer', onclick: () => coverInput.click() }),
-    cover ? h('button', {
-      class: 'btn btn--ghost btn--sm', type: 'button', text: 'Retirer',
-      onclick: () => { cover = null; render(coverBox, h('div', { class: 'cover cover--none', text: 'sans' }), coverActions()); },
-    }) : null,
-  );
-  coverBox.append(coverActions());
-
-  const form = h('form', { class: 'editor__box' },
-    h('span', { class: 'label', text: isNew ? 'Nouvelle station' : `Station #${station.id}` }),
-    h('h2', { style: { margin: '8px 0 22px', fontSize: '20px', letterSpacing: '-.03em' }, text: isNew ? 'Créer' : station.name }),
-
-    h('label', { class: 'field' }, h('span', { class: 'label', text: 'Nom' }), name),
-    h('label', { class: 'field' }, h('span', { class: 'label', text: 'Accroche' }), tagline),
-    h('label', { class: 'field' }, h('span', { class: 'label', text: 'Genre' }), genre),
-    h('label', { class: 'field' }, h('span', { class: 'label', text: 'Source' }), kind),
-    liveField,
-    h('label', { class: 'field' }, h('span', { class: 'label', text: 'Description' }), description),
-    h('div', { class: 'field' }, h('span', { class: 'label', text: 'Pochette' }), coverBox, coverInput),
-    h('label', { class: 'checkbox', style: { marginBottom: '20px' } }, published, 'Visible sur le site'),
-
-    h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-      h('button', { class: 'btn btn--solid', type: 'submit', text: isNew ? 'Créer' : 'Enregistrer' }),
-      !isNew ? h('button', {
-        class: 'btn btn--ghost', type: 'button', text: 'Nouvelle',
-        onclick: () => { store.editing = null; store.programme = []; render(store.editorBox, stationEditor(refresh)); },
-      }) : null,
-    ),
-  );
-
-  syncKind();
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const payload = {
-      name: name.value, tagline: tagline.value, genre: genre.value, description: description.value,
-      kind: kind.value, stream_url: streamUrl.value, cover, published: published.checked,
-    };
-    try {
-      const data = isNew
-        ? await api.post('/api/studio/stations', payload)
-        : await api.patch(`/api/studio/stations/${station.id}`, payload);
-      store.editing = data.station;
-      if (data.station.kind === 'mixtape' && !store.programme.length && !isNew) {
-        store.programme = (await api.get(`/api/studio/stations/${data.station.id}`)).tracks;
-      }
-      toast(isNew ? 'Station créée.' : 'Station enregistrée.');
-      await refresh();
-      render(store.editorBox, stationEditor(refresh));
-    } catch (err) { toast(err.message, 'error'); }
-  });
-
-  const wrap = h('div', {}, form);
-  if (store.editing?.kind === 'mixtape') wrap.append(programmeEditor(store.editing, refresh));
-  return wrap;
+async function loadEpisodes() {
+  const { episodes } = await api.get(`/api/studio/episodes${qs(store.filters)}`);
+  store.episodes = episodes;
+  return episodes;
 }
 
-function programmeEditor(station, refresh) {
-  const list = h('div', { class: 'programme' });
-  const count = h('h2', { style: { margin: '8px 0 4px', fontSize: '18px', letterSpacing: '-.03em' } });
+async function panelEpisodes(box) {
+  const [, { series }] = await Promise.all([loadEpisodes(), api.get('/api/studio/series')]);
+  store.series = series;
 
-  // `ids` comes from dragReorder; the other callers pass the order they just built.
-  const save = async (ids) => {
-    const trackIds = ids ?? [...list.querySelectorAll('[data-id]')].map((el) => Number(el.dataset.id));
-    const data = await api.put(`/api/studio/stations/${station.id}/tracks`, { track_ids: trackIds });
-    store.programme = data.tracks;
-    paint();
-    await refresh();
-  };
+  if (store.editingEpisode) return renderEpisodeEditor(box);
 
-  const paint = () => {
-    const n = store.programme.length;
-    count.textContent = `${n} titre${n > 1 ? 's' : ''}`;
-    clear(list);
-    if (!n) {
-      list.append(h('div', { class: 'empty', style: { padding: '26px 0' }, text: 'Programme vide.' }));
-      return;
-    }
-    store.programme.forEach((track, i) => {
-      list.append(h('div', { class: 'programme__item', draggable: 'true', dataset: { id: track.id } },
-        h('span', { class: 'grip' }, icon('drag', 12)),
-        h('span', { class: 'num', text: String(i + 1).padStart(2, '0') }),
-        h('div', { style: { minWidth: 0 } },
-          h('div', { style: { fontSize: '14px' }, text: track.title }),
-          h('div', { class: 'pick__sub', text: track.artist || '—' }),
-        ),
-        h('span', { class: 'num', text: track.duration ? fmtTime(track.duration) : '' }),
-        h('button', {
-          class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': 'Retirer du programme',
-          onclick: async () => {
-            store.programme = store.programme.filter((t) => t.id !== track.id);
-            await save(store.programme.map((t) => t.id));
-          },
-        }, icon('close', 11)),
-      ));
-    });
-  };
-
-  dragReorder(list, save);
-  paint();
-
-  return h('div', { class: 'editor__box', style: { marginTop: '18px' } },
-    h('span', { class: 'label', text: 'Programme' }),
-    count,
-    h('p', { class: 'pick__sub', style: { margin: '0 0 8px' }, text: 'glissez pour réordonner' }),
-    list,
-    h('button', {
-      class: 'btn', type: 'button', style: { marginTop: '16px' },
-      onclick: () => pickTracksDialog(station, save),
-    }, icon('plus', 12), 'Ajouter des titres'),
-  );
-}
-
-function pickTracksDialog(station, save) {
-  modal('Ajouter au programme', (close) => {
-    const search = h('input', { class: 'input', placeholder: 'filtrer la bibliothèque…' });
-    const list = h('div', { style: { maxHeight: '46vh', overflowY: 'auto', marginTop: '14px' } });
-    const chosen = new Set();
-
-    const paint = (query = '') => {
-      clear(list);
-      const inProgramme = new Set(store.programme.map((t) => t.id));
-      const rows = store.tracks.filter((t) => !inProgramme.has(t.id) && (
-        !query || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query)
-      ));
-
-      if (!rows.length) {
-        list.append(h('div', { class: 'empty', style: { padding: '26px 0' }, text: 'Rien à ajouter. Importez des fichiers dans l’onglet Titres.' }));
-        return;
-      }
-
-      rows.forEach((track) => {
-        const check = h('input', { type: 'checkbox', checked: chosen.has(track.id) });
-        check.addEventListener('change', () => (check.checked ? chosen.add(track.id) : chosen.delete(track.id)));
-        list.append(h('label', { class: 'pick' },
-          check,
-          h('div', { style: { minWidth: 0 } },
-            h('div', { text: track.title }),
-            h('div', { class: 'pick__sub', text: [track.artist, track.album].filter(Boolean).join(' · ') || '—' }),
-          ),
-          h('span', { class: 'num', text: track.duration ? fmtTime(track.duration) : '' }),
-        ));
-      });
-    };
-
-    search.addEventListener('input', () => paint(search.value.trim().toLowerCase()));
-    paint();
-
-    const actions = h('div', { class: 'modal__actions' },
-      h('button', { class: 'btn btn--ghost', type: 'button', text: 'Annuler', onclick: close }),
-      h('button', {
-        class: 'btn btn--solid', type: 'button', text: 'Ajouter',
-        onclick: async () => {
-          const added = store.tracks.filter((t) => chosen.has(t.id));
-          if (!added.length) return close();
-          store.programme = [...store.programme, ...added];
-          close();
-          await save(store.programme.map((t) => t.id));
-          toast(`${added.length} titre(s) ajouté(s).`);
-        },
-      }),
-    );
-
-    return frag(search, list, actions);
-  });
-}
-
-/* ------------------------------------------------------------------ tracks */
-
-async function panelTracks(box) {
   const listBox = h('div');
   const bar = h('div', { class: 'progress', hidden: true }, h('i'));
 
-  const load = async (query = '') => {
-    const { tracks } = await api.get(`/api/studio/tracks${qs({ q: query })}`);
-    store.tracks = tracks;
-    render(listBox, trackTable(load));
+  const refresh = async () => {
+    await loadEpisodes();
+    render(listBox, episodeTable(box));
   };
+
+  const seriesSelect = h('select', { class: 'select', 'aria-label': 'Ranger dans une série' },
+    h('option', { value: '', text: 'pièce isolée' }),
+    ...series.map((s) => h('option', { value: String(s.id), text: s.title })),
+  );
 
   const send = async (files) => {
     const audio = [...files].filter((f) => f.type.startsWith('audio/') || /\.(mp3|ogg|oga|opus|wav|flac|m4a|aac|webm)$/i.test(f.name));
     if (!audio.length) return toast('Aucun fichier audio dans la sélection.', 'error');
 
     const form = new FormData();
+    if (seriesSelect.value) form.append('series_id', seriesSelect.value);
     audio.slice(0, 20).forEach((file) => form.append('files', file));
 
     bar.hidden = false;
@@ -468,8 +183,8 @@ async function panelTracks(box) {
       const data = await api.upload('/api/studio/uploads', form, (ratio) => {
         bar.firstChild.style.width = `${Math.round(ratio * 100)}%`;
       });
-      toast(`${data.tracks.length} titre(s) importé(s).`);
-      await load();
+      toast(`${data.episodes.length} pièce(s) déposée(s) — à compléter puis publier.`);
+      await refresh();
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -484,69 +199,97 @@ async function panelTracks(box) {
   const drop = h('div', { class: 'drop', role: 'button', tabindex: '0', onclick: () => fileInput.click() },
     icon('upload', 22),
     h('strong', { text: 'Déposez vos fichiers audio ici' }),
-    h('small', { text: 'mp3 · flac · wav · ogg · opus · m4a — 20 fichiers par envoi, 120 Mo par fichier' }),
+    h('small', { text: 'mp3 · flac · wav · ogg · opus · m4a — 20 fichiers par envoi, 400 Mo par fichier' }),
   );
-
   drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('is-over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('is-over'));
-  drop.addEventListener('drop', (e) => {
-    e.preventDefault();
-    drop.classList.remove('is-over');
-    send(e.dataTransfer.files);
-  });
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('is-over'); send(e.dataTransfer.files); });
 
-  const search = h('input', { type: 'search', placeholder: 'chercher dans la bibliothèque…', 'aria-label': 'Recherche' });
+  const search = h('input', { type: 'search', value: store.filters.q, placeholder: 'chercher une pièce…', 'aria-label': 'Recherche' });
   let timer = null;
   search.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => load(search.value.trim()), 220);
+    timer = setTimeout(() => { store.filters.q = search.value.trim(); refresh(); }, 220);
   });
+
+  const stateSelect = h('select', { class: 'select', 'aria-label': 'Filtrer' },
+    h('option', { value: '', text: 'toutes' }),
+    h('option', { value: 'published', text: 'en ligne', selected: store.filters.state === 'published' }),
+    h('option', { value: 'draft', text: 'brouillons', selected: store.filters.state === 'draft' }),
+  );
+  stateSelect.addEventListener('change', () => { store.filters.state = stateSelect.value; refresh(); });
 
   render(box, h('section', { class: 'panel' },
     h('div', { class: 'panel__head' },
       h('div', {},
-        h('span', { class: 'label', text: 'Bibliothèque' }),
-        h('h1', { text: 'Titres' }),
+        h('span', { class: 'label', text: `${store.episodes.length} pièce(s)` }),
+        h('h1', { text: 'Pièces' }),
       ),
+      h('label', { class: 'inline-field' }, h('span', { class: 'label', text: 'Déposer dans' }), seriesSelect),
     ),
     drop, fileInput, bar,
-    h('div', { class: 'filters', style: { marginTop: '30px' } }, h('div', { class: 'search' }, icon('search', 13), search)),
+    h('div', { class: 'filters', style: { marginTop: '30px' } },
+      h('div', { class: 'search' }, icon('search', 13), search),
+      h('span', {}),
+      stateSelect,
+    ),
     listBox,
   ));
 
-  await load();
+  render(listBox, episodeTable(box));
 }
 
-function trackTable(reload) {
-  if (!store.tracks.length) {
-    return h('div', { class: 'empty', text: 'Bibliothèque vide. Déposez vos premiers fichiers ci-dessus.' });
+function episodeTable(box) {
+  if (!store.episodes.length) {
+    return h('div', { class: 'empty', text: 'Aucune pièce. Déposez vos premiers fichiers ci-dessus.' });
   }
 
-  const head = h('tr', {}, ...['Titre', 'Artiste', 'Album', 'Durée', 'Poids', 'Stations', ''].map((l) => h('th', { text: l })));
+  const head = h('tr', {}, ...['Pièce', 'Série', 'État', 'Durée', 'Écoutes', 'Note', ''].map((l) => h('th', { text: l })));
 
-  const body = h('tbody', {}, ...store.tracks.map((track) => h('tr', {},
+  const body = h('tbody', {}, ...store.episodes.map((episode) => h('tr', {},
     h('td', {},
       h('button', {
-        class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': `Écouter ${track.title}`,
-        style: { marginRight: '8px' }, onclick: () => player.playTracks([track], 0),
+        class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': `Écouter ${episode.title}`,
+        style: { marginRight: '8px' }, onclick: () => player.play([episode], 0),
       }, icon('play', 10)),
-      track.title,
+      h('a', {
+        href: '#', style: { fontWeight: '500' }, text: episode.title,
+        onclick: (e) => { e.preventDefault(); store.editingEpisode = episode.id; renderEpisodeEditor(box); },
+      }),
+      episode.subtitle ? h('div', { class: 'pick__sub', text: episode.subtitle }) : null,
     ),
-    h('td', { text: track.artist || '—' }),
-    h('td', { text: track.album || '—' }),
-    h('td', { class: 'num', text: track.duration ? fmtTime(track.duration) : '—' }),
-    h('td', { class: 'num', text: fmtSize(track.size) }),
-    h('td', { class: 'num', text: String(track.station_count ?? 0) }),
+    h('td', { class: 'num', text: episode.series?.title ?? '—' }),
+    h('td', {}, h('span', {
+      class: `tag ${episode.published ? 'tag--on' : 'tag--off'}`, text: episode.published ? 'en ligne' : 'brouillon',
+    })),
+    h('td', { class: 'num', text: episode.duration ? fmtTime(episode.duration) : '—' }),
+    h('td', { class: 'num', text: String(episode.play_count) }),
+    h('td', { class: 'num', text: episode.rating_avg ? Number(episode.rating_avg).toFixed(1) : '—' }),
     h('td', { class: 'actions' },
-      h('button', { class: 'btn btn--ghost btn--sm', type: 'button', title: 'Modifier', onclick: () => editTrackDialog(track, reload) }, icon('edit', 11)),
+      h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', title: 'Modifier',
+        onclick: () => { store.editingEpisode = episode.id; renderEpisodeEditor(box); },
+      }, icon('edit', 11)),
+      h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', text: episode.published ? 'Retirer' : 'Publier',
+        onclick: async () => {
+          try {
+            await api.patch(`/api/studio/episodes/${episode.id}`, { published: !episode.published });
+            toast(episode.published ? 'Pièce retirée du catalogue.' : 'Pièce publiée.');
+            await loadEpisodes();
+            await panelEpisodes(box);
+          } catch (err) { toast(err.message, 'error'); }
+        },
+      }),
       h('button', {
         class: 'btn btn--ghost btn--sm btn--danger', type: 'button', title: 'Supprimer',
         onclick: async () => {
-          if (!(await confirmDialog('Supprimer le titre', `« ${track.title} » sera effacé du serveur.`))) return;
-          await api.del(`/api/studio/tracks/${track.id}`);
-          toast('Titre supprimé.');
-          await reload();
+          if (!(await confirmDialog('Supprimer la pièce', `« ${episode.title} » et son fichier audio seront effacés.`))) return;
+          await api.del(`/api/studio/episodes/${episode.id}`);
+          toast('Pièce supprimée.');
+          await loadEpisodes();
+          await panelEpisodes(box);
         },
       }, icon('trash', 11)),
     ),
@@ -555,49 +298,316 @@ function trackTable(reload) {
   return h('div', { class: 'tbl__scroll' }, h('table', { class: 'tbl' }, h('thead', {}, head), body));
 }
 
-function editTrackDialog(track, reload) {
-  modal('Modifier le titre', (close) => {
-    const title = h('input', { class: 'input', value: track.title, maxlength: '200' });
-    const artist = h('input', { class: 'input', value: track.artist, maxlength: '200' });
-    const album = h('input', { class: 'input', value: track.album, maxlength: '200' });
-    const year = h('input', { class: 'input', value: track.year, maxlength: '10' });
+function renderEpisodeEditor(box) {
+  const episode = store.episodes.find((e) => e.id === store.editingEpisode);
+  if (!episode) { store.editingEpisode = null; return panelEpisodes(box); }
 
-    const form = h('form', {},
-      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Titre' }), title),
-      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Artiste' }), artist),
-      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Album' }), album),
-      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Année' }), year),
-      h('p', { class: 'pick__sub', text: `Fichier : ${track.file} · ${fmtSize(track.size)} · importé le ${fmtDateTime(track.created_at)}` }),
-      h('div', { class: 'modal__actions' },
-        h('button', { class: 'btn btn--ghost', type: 'button', text: 'Annuler', onclick: close }),
-        h('button', { class: 'btn btn--solid', type: 'submit', text: 'Enregistrer' }),
+  const back = async () => { store.editingEpisode = null; await panelEpisodes(box); };
+
+  const title = h('input', { class: 'input', value: episode.title, maxlength: '200', required: true });
+  const subtitle = h('input', { class: 'input', value: episode.subtitle, maxlength: '200', placeholder: 'une phrase de présentation' });
+  const authors = h('input', { class: 'input', value: episode.authors, maxlength: '200', placeholder: 'qui l’a fait' });
+  const tags = h('input', { class: 'input', value: episode.tags.join(', '), maxlength: '200', placeholder: 'documentaire, intime, ville' });
+  const description = h('textarea', { class: 'textarea textarea--tall', maxlength: '4000' }, episode.description);
+  const credits = h('textarea', { class: 'textarea', maxlength: '2000', placeholder: 'une ligne par mention' }, episode.credits);
+  const number = h('input', { class: 'input', type: 'number', min: '0', value: String(episode.number || 0) });
+  const published = h('input', { type: 'checkbox', checked: episode.published });
+
+  const seriesSelect = h('select', { class: 'select' },
+    h('option', { value: '', text: 'aucune — pièce isolée' }),
+    ...store.series.map((s) => h('option', { value: String(s.id), text: s.title, selected: episode.series_id === s.id })),
+  );
+
+  let cover = episode.cover ?? null;
+  const coverBox = h('div', { class: 'cover-pick' });
+  const coverInput = h('input', { type: 'file', accept: 'image/*', hidden: true });
+
+  const paintCover = () => {
+    render(coverBox,
+      cover
+        ? h('img', { class: 'cover', src: `/media/covers/${cover}`, alt: '' })
+        : h('div', { class: 'cover cover--none', text: 'sans' }),
+      h('div', {},
+        h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Changer', onclick: () => coverInput.click() }),
+        cover ? h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button', text: 'Retirer',
+          onclick: () => { cover = null; paintCover(); },
+        }) : null,
       ),
     );
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        await api.patch(`/api/studio/tracks/${track.id}`, {
-          title: title.value, artist: artist.value, album: album.value, year: year.value,
-        });
-        close();
-        toast('Titre mis à jour.');
-        await reload();
-      } catch (err) { toast(err.message, 'error'); }
-    });
-
-    return form;
+  };
+  coverInput.addEventListener('change', async () => {
+    const file = coverInput.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const data = await api.upload('/api/studio/covers', form);
+      cover = data.cover;
+      paintCover();
+    } catch (err) { toast(err.message, 'error'); }
   });
+  paintCover();
+
+  const form = h('form', { class: 'editor-grid' },
+    h('div', {},
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Titre' }), title),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Chapô' }), subtitle),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Description' }), description),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Générique' }), credits),
+    ),
+    h('div', {},
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Auteur·rices' }), authors),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Thèmes (séparés par des virgules)' }), tags),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Série' }), seriesSelect),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Numéro dans la série' }), number),
+      h('div', { class: 'field' }, h('span', { class: 'label', text: 'Illustration' }), coverBox, coverInput),
+      h('label', { class: 'checkbox', style: { marginBottom: '22px' } }, published, 'En ligne dans le catalogue'),
+
+      h('dl', { class: 'deflist' },
+        h('div', {}, h('dt', { text: 'Fichier' }), h('dd', { text: episode.file })),
+        h('div', {}, h('dt', { text: 'Durée' }), h('dd', { text: fmtTime(episode.duration) })),
+        h('div', {}, h('dt', { text: 'Poids' }), h('dd', { text: fmtSize(episode.size) })),
+        h('div', {}, h('dt', { text: 'Adresse' }), h('dd', { text: `/piece/${episode.slug}` })),
+        h('div', {}, h('dt', { text: 'Déposé le' }), h('dd', { text: fmtDateTime(episode.created_at) })),
+      ),
+    ),
+  );
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const { episode: saved } = await api.patch(`/api/studio/episodes/${episode.id}`, {
+        title: title.value,
+        subtitle: subtitle.value,
+        authors: authors.value,
+        tags: tags.value,
+        description: description.value,
+        credits: credits.value,
+        series_id: seriesSelect.value || null,
+        number: number.value,
+        cover,
+        published: published.checked,
+      });
+      toast(saved.published ? 'Pièce enregistrée et en ligne.' : 'Brouillon enregistré.');
+      await loadEpisodes();
+      store.editingEpisode = saved.id;
+      renderEpisodeEditor(box);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
+  render(box, h('section', { class: 'panel' },
+    h('div', { class: 'panel__head' },
+      h('div', {},
+        h('button', { class: 'label linkish', type: 'button', text: '← toutes les pièces', onclick: back }),
+        h('h1', { text: episode.title }),
+      ),
+      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+        h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => player.play([episode], 0) }, icon('play', 11), 'Écouter'),
+        episode.published ? h('a', { class: 'btn btn--ghost', href: `/piece/${episode.slug}`, text: 'Voir la page' }) : null,
+        h('button', { class: 'btn btn--solid', type: 'button', text: 'Enregistrer', onclick: () => form.requestSubmit() }),
+      ),
+    ),
+    form,
+  ));
 }
 
-/* ------------------------------------------------------------------- users */
+/* ---------------------------------------------------------------- séries */
+
+async function panelSeries(box) {
+  const { series } = await api.get('/api/studio/series');
+  store.series = series;
+
+  if (store.editingSeries !== null) return renderSeriesEditor(box);
+
+  const head = h('tr', {}, ...['Série', 'Épisodes', 'Durée', 'Abonnés', 'État', ''].map((l) => h('th', { text: l })));
+
+  const body = h('tbody', {}, ...series.map((s) => h('tr', {},
+    h('td', {},
+      h('a', {
+        href: '#', style: { fontWeight: '500' }, text: s.title,
+        onclick: (e) => { e.preventDefault(); store.editingSeries = s.id; renderSeriesEditor(box); },
+      }),
+      s.tagline ? h('div', { class: 'pick__sub', text: s.tagline }) : null,
+    ),
+    h('td', { class: 'num', text: `${s.published_count} / ${s.episode_count}` }),
+    h('td', { class: 'num', text: s.total_duration ? fmtTime(s.total_duration) : '—' }),
+    h('td', { class: 'num', text: String(s.follower_count) }),
+    h('td', {}, h('span', { class: `tag ${s.published ? 'tag--on' : 'tag--off'}`, text: s.published ? 'en ligne' : 'brouillon' })),
+    h('td', { class: 'actions' },
+      h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', title: 'Modifier',
+        onclick: () => { store.editingSeries = s.id; renderSeriesEditor(box); },
+      }, icon('edit', 11)),
+      h('button', {
+        class: 'btn btn--ghost btn--sm btn--danger', type: 'button', title: 'Supprimer',
+        onclick: async () => {
+          if (!(await confirmDialog('Supprimer la série',
+            `« ${s.title} » sera supprimée. Ses ${s.episode_count} pièce(s) restent en ligne, comme pièces isolées.`))) return;
+          await api.del(`/api/studio/series/${s.id}`);
+          toast('Série supprimée.');
+          await panelSeries(box);
+        },
+      }, icon('trash', 11)),
+    ),
+  )));
+
+  render(box, h('section', { class: 'panel' },
+    h('div', { class: 'panel__head' },
+      h('div', {},
+        h('span', { class: 'label', text: `${series.length} série(s)` }),
+        h('h1', { text: 'Séries' }),
+      ),
+      h('button', {
+        class: 'btn btn--solid', type: 'button',
+        onclick: () => { store.editingSeries = 0; renderSeriesEditor(box); },
+      }, icon('plus', 12), 'Nouvelle série'),
+    ),
+    series.length
+      ? h('div', { class: 'tbl__scroll' }, h('table', { class: 'tbl' }, h('thead', {}, head), body))
+      : h('div', { class: 'empty', text: 'Aucune série. Une pièce peut très bien vivre seule — les séries servent à regrouper ce qui se suit.' }),
+  ));
+}
+
+function renderSeriesEditor(box) {
+  const isNew = store.editingSeries === 0;
+  const series = isNew ? null : store.series.find((s) => s.id === store.editingSeries);
+  if (!isNew && !series) { store.editingSeries = null; return panelSeries(box); }
+
+  const back = async () => { store.editingSeries = null; await panelSeries(box); };
+
+  const title = h('input', { class: 'input', value: series?.title ?? '', maxlength: '120', required: true });
+  const tagline = h('input', { class: 'input', value: series?.tagline ?? '', maxlength: '160' });
+  const authors = h('input', { class: 'input', value: series?.authors ?? '', maxlength: '200' });
+  const description = h('textarea', { class: 'textarea textarea--tall', maxlength: '4000' }, series?.description ?? '');
+  const published = h('input', { type: 'checkbox', checked: Boolean(series?.published) });
+
+  let cover = series?.cover ?? null;
+  const coverBox = h('div', { class: 'cover-pick' });
+  const coverInput = h('input', { type: 'file', accept: 'image/*', hidden: true });
+
+  const paintCover = () => {
+    render(coverBox,
+      cover ? h('img', { class: 'cover', src: `/media/covers/${cover}`, alt: '' }) : h('div', { class: 'cover cover--none', text: 'sans' }),
+      h('div', {},
+        h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Changer', onclick: () => coverInput.click() }),
+        cover ? h('button', {
+          class: 'btn btn--ghost btn--sm', type: 'button', text: 'Retirer',
+          onclick: () => { cover = null; paintCover(); },
+        }) : null,
+      ),
+    );
+  };
+  coverInput.addEventListener('change', async () => {
+    const file = coverInput.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const data = await api.upload('/api/studio/covers', form);
+      cover = data.cover;
+      paintCover();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  paintCover();
+
+  const orderBox = h('div');
+
+  const form = h('form', { class: 'editor-grid' },
+    h('div', {},
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Titre' }), title),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Accroche' }), tagline),
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Description' }), description),
+    ),
+    h('div', {},
+      h('label', { class: 'field' }, h('span', { class: 'label', text: 'Auteur·rices' }), authors),
+      h('div', { class: 'field' }, h('span', { class: 'label', text: 'Illustration' }), coverBox, coverInput),
+      h('label', { class: 'checkbox', style: { marginBottom: '22px' } }, published, 'Visible dans les séries'),
+      orderBox,
+    ),
+  );
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      title: title.value, tagline: tagline.value, authors: authors.value,
+      description: description.value, cover, published: published.checked,
+    };
+    try {
+      const data = isNew
+        ? await api.post('/api/studio/series', payload)
+        : await api.patch(`/api/studio/series/${series.id}`, payload);
+      toast(isNew ? 'Série créée.' : 'Série enregistrée.');
+      const { series: all } = await api.get('/api/studio/series');
+      store.series = all;
+      store.editingSeries = data.series.id;
+      renderSeriesEditor(box);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
+  render(box, h('section', { class: 'panel' },
+    h('div', { class: 'panel__head' },
+      h('div', {},
+        h('button', { class: 'label linkish', type: 'button', text: '← toutes les séries', onclick: back }),
+        h('h1', { text: isNew ? 'Nouvelle série' : series.title }),
+      ),
+      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+        !isNew && series.published ? h('a', { class: 'btn btn--ghost', href: `/serie/${series.slug}`, text: 'Voir la page' }) : null,
+        h('button', { class: 'btn btn--solid', type: 'button', text: isNew ? 'Créer' : 'Enregistrer', onclick: () => form.requestSubmit() }),
+      ),
+    ),
+    form,
+  ));
+
+  if (!isNew) paintSeriesOrder(orderBox, series.id);
+}
+
+async function paintSeriesOrder(box, seriesId) {
+  const { episodes } = await api.get(`/api/studio/series/${seriesId}`);
+  const list = h('div', { class: 'programme' });
+
+  const paint = (rows) => {
+    clear(list);
+    if (!rows.length) {
+      list.append(h('div', { class: 'empty', style: { padding: '22px 0' }, text: 'Aucune pièce dans cette série.' }));
+      return;
+    }
+    rows.forEach((episode, i) => {
+      list.append(h('div', { class: 'programme__item', draggable: 'true', dataset: { id: episode.id } },
+        h('span', { class: 'grip' }, icon('drag', 12)),
+        h('span', { class: 'num', text: String(i + 1).padStart(2, '0') }),
+        h('div', { style: { minWidth: 0 } },
+          h('div', { style: { fontSize: '14px' }, text: episode.title }),
+          h('div', { class: 'pick__sub', text: episode.published ? 'en ligne' : 'brouillon' }),
+        ),
+        h('span', { class: 'num', text: episode.duration ? fmtTime(episode.duration) : '' }),
+      ));
+    });
+  };
+
+  dragReorder(list, async (order) => {
+    try {
+      const data = await api.put(`/api/studio/series/${seriesId}/order`, { episode_ids: order });
+      paint(data.episodes);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
+  paint(episodes);
+
+  render(box,
+    h('span', { class: 'label', text: 'Ordre des épisodes' }),
+    h('p', { class: 'pick__sub', style: { margin: '6px 0 0' }, text: 'glissez pour réordonner' }),
+    list,
+  );
+}
+
+/* -------------------------------------------------------------- auditeurs */
 
 async function panelUsers(box) {
   const listBox = h('div');
 
   const load = async () => {
     const { users } = await api.get('/api/studio/users');
-
     const head = h('tr', {}, ...['Pseudo', 'E-mail', 'Rôle', 'Notes', 'Playlists', 'Inscription', ''].map((l) => h('th', { text: l })));
 
     const body = h('tbody', {}, ...users.map((u) => {
@@ -623,7 +633,8 @@ async function panelUsers(box) {
           u.id === store.user.id ? null : h('button', {
             class: 'btn btn--ghost btn--sm btn--danger', type: 'button', title: 'Supprimer le compte',
             onclick: async () => {
-              if (!(await confirmDialog('Supprimer le compte', `Le compte « ${u.username} », ses notes et ses playlists seront effacés.`))) return;
+              if (!(await confirmDialog('Supprimer le compte',
+                `Le compte « ${u.username} », ses notes et ses playlists seront effacés.`))) return;
               await api.del(`/api/studio/users/${u.id}`);
               toast('Compte supprimé.');
               await load();
@@ -638,10 +649,7 @@ async function panelUsers(box) {
 
   render(box, h('section', { class: 'panel' },
     h('div', { class: 'panel__head' },
-      h('div', {},
-        h('span', { class: 'label', text: 'Comptes' }),
-        h('h1', { text: 'Auditeurs' }),
-      ),
+      h('div', {}, h('span', { class: 'label', text: 'Comptes' }), h('h1', { text: 'Auditeurs' })),
     ),
     listBox,
   ));
@@ -649,7 +657,7 @@ async function panelUsers(box) {
   await load();
 }
 
-/* -------------------------------------------------------------------- gate */
+/* ------------------------------------------------------------------ gate */
 
 function gate(message) {
   const identifier = h('input', { class: 'input', autocomplete: 'username', required: true });
@@ -673,6 +681,7 @@ function gate(message) {
         return;
       }
       store.user = user;
+      player.setUser(user);
       paintNav();
       await paintTab();
     } catch (err) {
@@ -693,7 +702,7 @@ function gate(message) {
   ));
 }
 
-/* -------------------------------------------------------------------- boot */
+/* ------------------------------------------------------------------ boot */
 
 const initialTab = location.hash.slice(1);
 if (TABS.some(([id]) => id === initialTab)) store.tab = initialTab;
@@ -701,10 +710,11 @@ if (TABS.some(([id]) => id === initialTab)) store.tab = initialTab;
 api.get('/api/auth/me')
   .then(async ({ user }) => {
     store.user = user;
+    player.setUser(user);
     paintNav();
 
-    if (!user) return gate('Connectez-vous avec le compte propriétaire pour piloter la grille.');
-    if (user.role !== 'admin') return gate('Ce compte n’a pas accès au studio. Connectez-vous avec le compte propriétaire.');
+    if (!user) return gate('Connectez-vous avec le compte propriétaire pour publier.');
+    if (user.role !== 'admin') return gate('Ce compte n’a pas accès au studio.');
     await paintTab();
   })
   .catch(() => gate('Serveur injoignable.'));

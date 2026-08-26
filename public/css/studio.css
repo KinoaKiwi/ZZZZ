@@ -128,3 +128,24 @@
 .gate { max-width: 340px; margin: 0 auto; padding: clamp(60px, 15vh, 130px) 0; }
 .gate h1 { margin: 12px 0 8px; font-size: 32px; font-weight: 700; letter-spacing: -.04em; }
 .gate p { color: var(--ink-70); margin: 0 0 28px; font-size: 14px; }
+
+/* Full-width editor: the text on the left, everything else on the right. */
+.editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 56px);
+  align-items: start;
+}
+@media (max-width: 860px) { .editor-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.inline-field { display: flex; align-items: center; gap: 12px; }
+.inline-field .label { white-space: nowrap; }
+
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-45);
+}
+.linkish:hover { color: var(--accent); }

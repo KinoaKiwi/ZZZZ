@@ -6,8 +6,7 @@ import { player } from './player.js';
 
 const state = {
   user: null,
-  stations: [],
-  filters: { q: '', genre: '', kind: '', sort: 'recent' },
+  filters: { q: '', tag: '', sort: 'recent' },
 };
 
 const main = () => document.getElementById('main');
@@ -15,9 +14,10 @@ const main = () => document.getElementById('main');
 /* --------------------------------------------------------------- routing */
 
 const ROUTES = [
-  [/^\/$/, () => viewHome()],
-  [/^\/station\/([A-Za-z0-9_-]+)$/, (slug) => viewStation(slug)],
-  [/^\/titres$/, () => viewTracks()],
+  [/^\/$/, () => viewCatalogue()],
+  [/^\/piece\/([A-Za-z0-9_-]+)$/, (slug) => viewEpisode(slug)],
+  [/^\/series$/, () => viewSeriesIndex()],
+  [/^\/serie\/([A-Za-z0-9_-]+)$/, (slug) => viewSeries(slug)],
   [/^\/playlists$/, () => viewPlaylists()],
   [/^\/playlist\/(\d+)$/, (id) => viewPlaylist(Number(id))],
   [/^\/compte$/, () => viewAccount()],
@@ -50,9 +50,9 @@ async function route() {
 
   render(main(), h('div', { class: 'wrap page' },
     h('span', { class: 'label', text: 'Erreur 404' }),
-    h('div', { class: 'page__head' }, h('h1', { text: 'Hors antenne' })),
-    h('p', { class: 'muted', text: 'Cette adresse ne correspond à aucune page.' }),
-    h('p', {}, link('/', 'Retour à la grille', 'btn')),
+    h('div', { class: 'page__head' }, h('h1', { text: 'Page introuvable' })),
+    h('p', { class: 'muted', text: 'Cette adresse ne mène nulle part.' }),
+    h('p', {}, link('/', 'Retour au catalogue', 'btn')),
   ));
 }
 
@@ -75,19 +75,17 @@ function paintNav() {
   const path = location.pathname;
   const isOn = (href) => (path === href || (href !== '/' && path.startsWith(href)) ? 'is-active' : '');
 
-  const nav = h('nav', { class: 'nav' },
-    h('a', { href: '/', class: isOn('/'), 'data-link': '', text: 'Grille' }),
-    h('a', { href: '/titres', class: isOn('/titres'), 'data-link': '', text: 'Titres' }),
-    h('a', { href: '/playlists', class: isOn('/playlists'), 'data-link': '', text: 'Playlists' }),
-    state.user
-      ? h('a', { href: '/compte', class: isOn('/compte'), 'data-link': '', text: state.user.username })
-      : h('a', { href: '/connexion', class: isOn('/connexion'), 'data-link': '', text: 'Se connecter' }),
-    state.user?.role === 'admin' ? h('a', { href: '/studio', text: 'Studio', class: 'accent' }) : null,
-  );
-
   render(document.getElementById('nav'),
-    h('a', { href: '/', class: 'brand', 'data-link': '' }, 'Onde', h('em', { text: 'radio en continu' })),
-    nav,
+    h('a', { href: '/', class: 'brand', 'data-link': '' }, 'Onde', h('em', { text: 'pièces sonores' })),
+    h('nav', { class: 'nav' },
+      h('a', { href: '/', class: isOn('/'), 'data-link': '', text: 'Catalogue' }),
+      h('a', { href: '/series', class: isOn('/serie'), 'data-link': '', text: 'Séries' }),
+      h('a', { href: '/playlists', class: isOn('/playlist'), 'data-link': '', text: 'Playlists' }),
+      state.user
+        ? h('a', { href: '/compte', class: isOn('/compte'), 'data-link': '', text: state.user.username })
+        : h('a', { href: '/connexion', class: isOn('/connexion'), 'data-link': '', text: 'Se connecter' }),
+      state.user?.role === 'admin' ? h('a', { href: '/studio', text: 'Studio', class: 'accent' }) : null,
+    ),
     h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': 'Changer de thème', onclick: toggleTheme,
     }, icon('theme', 13)),
@@ -96,84 +94,78 @@ function paintNav() {
 
 function toggleTheme() {
   const root = document.documentElement;
-  const current = root.dataset.theme
-    || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const current = root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   const next = current === 'dark' ? 'light' : 'dark';
   root.dataset.theme = next;
   try { localStorage.setItem('onde.theme', next); } catch { /* ignore */ }
 }
 
-/* ------------------------------------------------------------- home view */
+/* ------------------------------------------------------------- catalogue */
 
-async function viewHome() {
-  const [{ stations }, { genres }] = await Promise.all([
-    api.get(`/api/stations${qs(state.filters)}`),
-    api.get('/api/stations/genres'),
+async function viewCatalogue() {
+  const [{ episodes }, { tags }, started] = await Promise.all([
+    api.get(`/api/episodes${qs(state.filters)}`),
+    api.get('/api/tags'),
+    state.user ? api.get('/api/continue') : Promise.resolve({ episodes: [] }),
   ]);
-  state.stations = stations;
 
   const list = h('div', { class: 'index' });
   const search = h('input', {
-    type: 'search', value: state.filters.q, placeholder: 'chercher une station, un genre…', 'aria-label': 'Recherche',
+    type: 'search', value: state.filters.q, placeholder: 'chercher un titre, un auteur, un thème…', 'aria-label': 'Recherche',
   });
+
+  const reload = async () => {
+    const data = await api.get(`/api/episodes${qs(state.filters)}`);
+    paintIndex(list, data.episodes);
+    paintChips();
+  };
 
   let timer = null;
   search.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(async () => {
-      state.filters.q = search.value.trim();
-      const data = await api.get(`/api/stations${qs(state.filters)}`);
-      state.stations = data.stations;
-      paintIndex(list, data.stations);
-    }, 220);
+    timer = setTimeout(() => { state.filters.q = search.value.trim(); reload(); }, 220);
   });
-
-  const reload = async () => {
-    const data = await api.get(`/api/stations${qs(state.filters)}`);
-    state.stations = data.stations;
-    paintIndex(list, data.stations);
-    paintChips();
-  };
 
   const chipRow = h('div', { class: 'chips' });
   const paintChips = () => {
     render(chipRow,
-      chip('Tout', !state.filters.genre && !state.filters.kind, () => {
-        state.filters.genre = ''; state.filters.kind = ''; reload();
-      }),
-      chip('Direct', state.filters.kind === 'live', () => {
-        state.filters.kind = state.filters.kind === 'live' ? '' : 'live'; reload();
-      }),
-      chip('Mixtape', state.filters.kind === 'mixtape', () => {
-        state.filters.kind = state.filters.kind === 'mixtape' ? '' : 'mixtape'; reload();
-      }),
-      genres.map(({ genre }) => chip(genre, state.filters.genre === genre, () => {
-        state.filters.genre = state.filters.genre === genre ? '' : genre; reload();
-      })),
+      chip('Tout', !state.filters.tag, () => { state.filters.tag = ''; reload(); }),
+      tags.slice(0, 14).map(({ tag, n }) => chip(tag, state.filters.tag === tag, () => {
+        state.filters.tag = state.filters.tag === tag ? '' : tag;
+        reload();
+      }, n)),
     );
   };
   paintChips();
 
   const sort = h('select', { class: 'select', 'aria-label': 'Trier' },
-    ...[['recent', 'récentes'], ['rating', 'mieux notées'], ['popular', 'plus écoutées'], ['name', 'a → z']]
+    ...[['recent', 'récentes'], ['oldest', 'plus anciennes'], ['rating', 'mieux notées'],
+        ['popular', 'plus écoutées'], ['short', 'les plus courtes'], ['long', 'les plus longues'], ['title', 'a → z']]
       .map(([value, label]) => h('option', { value, text: label, selected: state.filters.sort === value })),
   );
   sort.addEventListener('change', () => { state.filters.sort = sort.value; reload(); });
 
-  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const trackTotal = stations.reduce((sum, s) => sum + s.track_count, 0);
+  const total = episodes.reduce((sum, e) => sum + (e.duration || 0), 0);
 
   render(main(),
     h('div', { class: 'wrap' },
       h('section', { class: 'hero' },
         h('div', { class: 'hero__meta' },
-          h('span', { class: 'label', text: `Grille du ${today}` }),
-          h('span', { class: 'label', text: `${stations.length} stations` }),
-          h('span', { class: 'label', text: `${trackTotal} titres programmés` }),
+          h('span', { class: 'label', text: 'Catalogue' }),
+          h('span', { class: 'label', text: `${episodes.length} pièce${episodes.length > 1 ? 's' : ''}` }),
+          h('span', { class: 'label', text: `${fmtTotal(total)} d’écoute` }),
         ),
-        h('h1', { text: 'La grille' }),
-        h('p', { text: 'Des flux en direct et des mixtapes montées à la main. La lecture ne s’interrompt pas quand vous changez de page.' }),
+        h('h1', { text: 'Écouter' }),
+        h('p', { text: 'Documentaires, fictions et pièces sonores. Rien en direct : tout se réécoute quand vous voulez, et reprend là où vous l’avez laissé.' }),
       ),
+
+      started.episodes.length
+        ? h('section', { class: 'section', style: { marginTop: '0' } },
+            h('h2', { text: 'Reprendre l’écoute' }),
+            h('div', { class: 'index' }, ...started.episodes.map((e, i) => episodeRow(e, i + 1, started.episodes))),
+          )
+        : null,
+
       h('section', { class: 'filters' },
         h('div', { class: 'search' }, icon('search', 13), search),
         chipRow,
@@ -183,144 +175,199 @@ async function viewHome() {
     ),
   );
 
-  paintIndex(list, stations);
+  paintIndex(list, episodes);
 }
 
-function chip(label, active, onclick) {
-  return h('button', { class: `chip ${active ? 'is-on' : ''}`, type: 'button', text: label, onclick });
+function chip(label, active, onclick, count = null) {
+  return h('button', { class: `chip ${active ? 'is-on' : ''}`, type: 'button', onclick },
+    label,
+    count ? h('i', { text: String(count) }) : null,
+  );
 }
 
-function paintIndex(container, stations) {
+/** "18 min" reads better than "0.3 h" for a young catalogue. */
+function fmtTotal(seconds) {
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  return `${(seconds / 3600).toFixed(1).replace('.', ',')} h`;
+}
+
+function paintIndex(container, episodes) {
   clear(container);
 
-  if (!stations.length) {
-    container.append(h('div', { class: 'empty', text: 'Aucune station ne correspond à cette recherche.' }));
+  if (!episodes.length) {
+    container.append(h('div', { class: 'empty' },
+      h('p', { text: 'Rien à écouter ici pour l’instant.' }),
+      state.user?.role === 'admin'
+        ? h('p', {}, h('a', { href: '/studio#episodes', class: 'btn btn--sm', text: 'Déposer une pièce' }))
+        : null,
+    ));
     return;
   }
 
-  stations.forEach((station, i) => container.append(stationRow(station, i + 1)));
+  episodes.forEach((episode, i) => container.append(episodeRow(episode, i + 1, episodes)));
   syncPlayingRows();
 }
 
-function stationRow(station, position) {
-  const playBtn = h('button', {
-    class: 'row__play', type: 'button', 'aria-label': `Écouter ${station.name}`,
-    onclick: (e) => { e.stopPropagation(); playStation(station); },
-  }, icon('play', 11));
+/** Where this listener stopped, if far enough in to be worth resuming. */
+function resumePosition(episode) {
+  const saved = state.user ? (episode.progress?.completed ? 0 : episode.progress?.position ?? 0) : 0;
+  return saved > 30 && (!episode.duration || saved < episode.duration - 20) ? saved : 0;
+}
+
+/** `hideSeries` avoids repeating the series title on every row of that same series. */
+function episodeRow(episode, position, queue = null, { hideSeries = false } = {}) {
+  const resume = resumePosition(episode);
+  const context = queue ?? [episode];
+
+  const meta = hideSeries
+    ? episode.authors
+    : [episode.series?.title, episode.authors].filter(Boolean).join(' · ');
+  const aside = hideSeries
+    ? episode.authors || episode.tags[0] || ''
+    : episode.series?.title ?? episode.authors ?? episode.tags[0] ?? '';
 
   return h('div', {
-    class: 'row', dataset: { station: station.id },
-    onclick: () => navigate(`/station/${station.slug}`),
+    class: 'row', dataset: { episode: episode.id },
+    onclick: () => navigate(`/piece/${episode.slug}`),
   },
     h('span', { class: 'row__num', text: String(position).padStart(2, '0') }),
     h('div', { class: 'row__main' },
-      h('div', { class: 'row__name', text: station.name }),
-      h('div', { class: 'row__sub', text: station.tagline || '—' }),
+      h('div', { class: 'row__name', text: episode.title }),
+      h('div', { class: 'row__sub', text: episode.subtitle || meta || '—' }),
+      resume
+        ? h('div', { class: 'row__resume' },
+            h('i', { style: { width: `${Math.min(100, (resume / (episode.duration || 1)) * 100)}%` } }),
+            h('span', { text: `reprendre à ${fmtTime(resume)}` }),
+          )
+        : null,
     ),
-    h('span', { class: 'row__genre', text: station.genre || '' }),
-    h('span', { class: 'row__kind', text: station.kind === 'live' ? 'Direct' : `Mixtape · ${station.track_count}` }),
+    h('span', { class: 'row__genre', text: aside }),
+    h('span', { class: 'row__kind tnum', text: episode.duration ? fmtTime(episode.duration) : '' }),
     h('span', { class: 'row__score' },
-      station.rating_avg ? String(station.rating_avg.toFixed(1)) : h('span', { text: '—' }),
+      episode.rating_avg ? String(episode.rating_avg.toFixed(1)) : h('span', { text: '—' }),
     ),
-    playBtn,
+    h('button', {
+      class: 'row__play', type: 'button', 'aria-label': `Écouter ${episode.title}`,
+      onclick: (e) => { e.stopPropagation(); player.play(context, context.indexOf(episode)); },
+    }, icon('play', 11)),
   );
 }
 
 function syncPlayingRows() {
-  const stationId = player.current?.stationId ?? null;
-  document.querySelectorAll('.row[data-station]').forEach((row) => {
-    row.classList.toggle('is-playing', Number(row.dataset.station) === stationId && player.playing);
-  });
-  document.querySelectorAll('.track[data-track]').forEach((row) => {
-    row.classList.toggle('is-playing', Number(row.dataset.track) === (player.current?.trackId ?? null));
+  const id = player.current?.id ?? null;
+  document.querySelectorAll('.row[data-episode]').forEach((row) => {
+    row.classList.toggle('is-playing', Number(row.dataset.episode) === id && player.playing);
   });
 }
 
-async function playStation(station) {
-  if (station.kind === 'mixtape') {
-    const data = await api.get(`/api/stations/${station.slug}`);
-    player.playStation(data.station, data.tracks);
-  } else {
-    player.playStation(station);
-  }
-}
+/* --------------------------------------------------------------- episode */
 
-/* ---------------------------------------------------------- station view */
-
-async function viewStation(slug) {
-  const { station, tracks, breakdown } = await api.get(`/api/stations/${slug}`);
+async function viewEpisode(slug) {
+  const { episode, series, siblings, breakdown } = await api.get(`/api/episodes/${slug}`);
+  const queue = [episode, ...(series ? siblings : [])];
+  const resume = resumePosition(episode);
 
   const ratingBox = h('div');
-  const paintRating = (summary) => {
-    render(ratingBox, ratingWidget(station, summary));
-  };
-  paintRating({ rating_avg: station.rating_avg, rating_count: station.rating_count, my_rating: station.my_rating });
+  const paintRating = (summary) => render(ratingBox, ratingWidget(episode, summary, paintRating));
+  paintRating({ rating_avg: episode.rating_avg, rating_count: episode.rating_count, my_rating: episode.my_rating });
 
-  const followBtn = h('button', {
-    class: `btn ${station.is_favorite ? 'btn--ghost' : ''}`, type: 'button',
-    text: station.is_favorite ? 'Suivi' : 'Suivre',
+  const bookmark = h('button', {
+    class: `btn ${episode.bookmarked ? 'btn--ghost' : ''}`, type: 'button',
+    text: episode.bookmarked ? 'Dans vos écoutes' : 'À écouter',
     onclick: async () => {
       if (!requireAccount()) return;
-      const next = !followBtn.classList.contains('btn--ghost');
-      const call = next ? api.put(`/api/stations/${station.id}/favorite`) : api.del(`/api/stations/${station.id}/favorite`);
+      const next = !bookmark.classList.contains('btn--ghost');
       try {
-        await call;
-        followBtn.classList.toggle('btn--ghost', next);
-        followBtn.textContent = next ? 'Suivi' : 'Suivre';
+        await (next
+          ? api.put(`/api/episodes/${episode.id}/bookmark`)
+          : api.del(`/api/episodes/${episode.id}/bookmark`));
+        bookmark.classList.toggle('btn--ghost', next);
+        bookmark.textContent = next ? 'Dans vos écoutes' : 'À écouter';
       } catch (err) { toast(err.message, 'error'); }
     },
   });
-
-  const tracksBox = h('div', { class: 'tracks' });
-  tracks.forEach((track, i) => tracksBox.append(trackRow(track, i + 1, { station, tracks })));
 
   render(main(),
     h('div', { class: 'wrap' },
       h('div', { class: 'station' },
         h('div', {},
-          h('a', { href: '/', 'data-link': '', class: 'label', text: '← la grille' }),
-          h('h1', { text: station.name }),
-          station.tagline ? h('p', { class: 'station__tagline', text: station.tagline }) : null,
+          series
+            ? h('a', { href: `/serie/${series.slug}`, 'data-link': '', class: 'label', text: `← ${series.title}` })
+            : h('a', { href: '/', 'data-link': '', class: 'label', text: '← le catalogue' }),
+
+          h('h1', { text: episode.title }),
+          episode.subtitle ? h('p', { class: 'station__tagline', text: episode.subtitle }) : null,
+
+          h('div', { class: 'hero__meta', style: { margin: '0 0 26px' } },
+            episode.authors ? h('span', { class: 'label', text: episode.authors }) : null,
+            h('span', { class: 'label', text: fmtTime(episode.duration) }),
+            episode.published_at ? h('span', { class: 'label', text: fmtDate(episode.published_at) }) : null,
+          ),
 
           h('div', { class: 'station__actions' },
             h('button', {
-              class: 'btn btn--solid', type: 'button', onclick: () => player.playStation(station, tracks),
-            }, icon('play', 12), station.kind === 'live' ? 'Écouter le direct' : 'Lancer la mixtape'),
-            followBtn,
+              class: 'btn btn--solid', type: 'button', onclick: () => player.play(queue, 0),
+            }, icon('play', 12), resume ? `Reprendre à ${fmtTime(resume)}` : 'Écouter'),
+            resume
+              ? h('button', {
+                  class: 'btn btn--ghost', type: 'button', text: 'Depuis le début',
+                  onclick: () => {
+                    episode.progress = { position: 0, completed: false };
+                    player.play(queue, 0);
+                  },
+                })
+              : null,
+            bookmark,
             h('button', {
               class: 'btn btn--ghost', type: 'button', text: 'Ajouter à une playlist',
-              onclick: () => addToPlaylist('station', station.id, station.name),
+              onclick: () => addToPlaylist({ episode_id: episode.id }, episode.title),
             }),
           ),
 
           ratingBox,
-          station.description ? h('p', { class: 'station__desc', text: station.description }) : null,
 
-          tracks.length
-            ? frag(
-                h('h2', { class: 'label', style: { marginTop: '40px' }, text: `Programme — ${tracks.length} titres` }),
-                tracksBox,
+          episode.description
+            ? h('div', { class: 'prose' }, ...episode.description.split(/\n{2,}/).map((p) => h('p', { text: p })))
+            : null,
+
+          episode.tags.length
+            ? h('div', { class: 'chips', style: { marginTop: '26px' } },
+                ...episode.tags.map((tag) => h('a', {
+                  class: 'chip', href: '/', 'data-link': '', text: tag,
+                  onclick: () => { state.filters.tag = tag; state.filters.q = ''; },
+                })),
               )
-            : station.kind === 'mixtape'
-              ? h('div', { class: 'empty', text: 'Programme en cours de montage.' })
-              : null,
+            : null,
+
+          episode.credits
+            ? h('div', { class: 'credits' },
+                h('span', { class: 'label', text: 'Générique' }),
+                ...episode.credits.split(/\n+/).map((line) => h('p', { text: line })),
+              )
+            : null,
+
+          siblings.length
+            ? frag(
+                h('h2', { class: 'label', style: { marginTop: '48px' }, text: series ? 'Dans la même série' : 'À écouter aussi' }),
+                h('div', { class: 'index' }, ...siblings.map((e, i) => episodeRow(e, i + 1, siblings, { hideSeries: Boolean(series) }))),
+              )
+            : null,
         ),
 
         h('aside', {},
-          station.cover_url
-            ? h('img', { class: 'cover', src: station.cover_url, alt: `Pochette de ${station.name}` })
-            : h('div', { class: 'cover cover--none', text: station.kind === 'live' ? 'direct' : 'mixtape' }),
+          episode.cover_url
+            ? h('img', { class: 'cover', src: episode.cover_url, alt: `Illustration de ${episode.title}` })
+            : h('div', { class: 'cover cover--none', text: 'pièce sonore' }),
 
           h('dl', { class: 'deflist' },
-            def('Type', station.kind === 'live' ? 'Flux en direct' : 'Mixtape'),
-            station.genre ? def('Genre', station.genre) : null,
-            station.kind === 'mixtape' ? def('Titres', String(station.track_count)) : null,
-            def('Écoutes', String(station.play_count)),
-            def('Abonnés', String(station.favorite_count)),
-            def('En ligne depuis', fmtDate(station.created_at)),
+            series ? def('Série', series.title) : def('Format', 'Pièce isolée'),
+            def('Durée', fmtTime(episode.duration)),
+            episode.published_at ? def('Publié le', fmtDate(episode.published_at)) : null,
+            def('Écoutes', String(episode.play_count)),
+            def('Note', episode.rating_avg ? `${episode.rating_avg.toFixed(1)} / 5` : '—'),
           ),
 
-          breakdown.length ? ratingBars(breakdown, station.rating_count) : null,
+          breakdown.length ? ratingBars(breakdown, episode.rating_count) : null,
         ),
       ),
     ),
@@ -331,45 +378,39 @@ async function viewStation(slug) {
 
 const def = (term, value) => h('div', {}, h('dt', { text: term }), h('dd', { text: value }));
 
-function ratingWidget(station, summary) {
-  const wrap = h('div', { class: 'rating' });
+function ratingWidget(episode, summary, repaint) {
+  const mine = summary.my_rating;
 
-  const setStars = (score, mine) => {
-    const list = h('div', { class: `stars ${mine ? 'is-set' : ''}` });
-    for (let i = 1; i <= 5; i += 1) {
-      const btn = h('button', {
-        type: 'button', text: '★', 'aria-label': `Noter ${i} sur 5`,
-        class: (mine ? mine >= i : Math.round(score) >= i) ? 'on' : '',
-        onclick: async () => {
-          if (!requireAccount()) return;
-          try {
-            const next = mine === i
-              ? await api.del(`/api/stations/${station.id}/rating`)
-              : await api.put(`/api/stations/${station.id}/rating`, { score: i });
-            render(wrap.parentElement, ratingWidget(station, next));
-          } catch (err) { toast(err.message, 'error'); }
-        },
-      });
-      btn.addEventListener('mouseenter', () => {
-        [...list.children].forEach((el, idx) => el.classList.toggle('hot', idx < i));
-      });
-      list.append(btn);
-    }
-    list.addEventListener('mouseleave', () => [...list.children].forEach((el) => el.classList.remove('hot')));
-    return list;
-  };
+  const stars = h('div', { class: `stars ${mine ? 'is-set' : ''}` });
+  for (let i = 1; i <= 5; i += 1) {
+    const btn = h('button', {
+      type: 'button', text: '★', 'aria-label': `Noter ${i} sur 5`,
+      class: (mine ? mine >= i : Math.round(summary.rating_avg ?? 0) >= i) ? 'on' : '',
+      onclick: async () => {
+        if (!requireAccount()) return;
+        try {
+          repaint(mine === i
+            ? await api.del(`/api/episodes/${episode.id}/rating`)
+            : await api.put(`/api/episodes/${episode.id}/rating`, { score: i }));
+        } catch (err) { toast(err.message, 'error'); }
+      },
+    });
+    btn.addEventListener('mouseenter', () => {
+      [...stars.children].forEach((el, idx) => el.classList.toggle('hot', idx < i));
+    });
+    stars.append(btn);
+  }
+  stars.addEventListener('mouseleave', () => [...stars.children].forEach((el) => el.classList.remove('hot')));
 
-  wrap.append(
-    setStars(summary.rating_avg ?? 0, summary.my_rating),
+  return h('div', { class: 'rating' },
+    stars,
     h('span', { class: 'rating__score' },
       summary.rating_avg
         ? frag(h('b', { text: Number(summary.rating_avg).toFixed(1) }), ` / 5 · ${summary.rating_count} avis`)
         : 'pas encore noté',
     ),
-    summary.my_rating ? h('span', { class: 'label', text: `votre note : ${summary.my_rating}` }) : null,
+    mine ? h('span', { class: 'label', text: `votre note : ${mine}` }) : null,
   );
-
-  return wrap;
 }
 
 function ratingBars(breakdown, total) {
@@ -387,62 +428,109 @@ function ratingBars(breakdown, total) {
   return box;
 }
 
-function trackRow(track, position, context = {}) {
-  return h('div', {
-    class: 'track', dataset: { track: track.id },
-    ondblclick: () => player.playTracks(context.tracks ?? [track], position - 1, context.station ?? null),
-  },
-    h('button', {
-      class: 'track__num', type: 'button', 'aria-label': `Écouter ${track.title}`, style: { border: 0, cursor: 'pointer', background: 'none' },
-      onclick: () => player.playTracks(context.tracks ?? [track], (context.tracks ? position - 1 : 0), context.station ?? null),
-    }, String(position).padStart(2, '0')),
-    h('div', { style: { minWidth: 0 } },
-      h('div', { class: 'track__title', text: track.title }),
-      h('div', { class: 'track__artist', text: [track.artist, track.album].filter(Boolean).join(' · ') || '—' }),
-    ),
-    h('span', { class: 'track__time', text: track.duration ? fmtTime(track.duration) : '' }),
-    h('button', {
-      class: 'btn btn--ghost btn--sm', type: 'button', title: 'Ajouter à une playlist',
-      onclick: () => addToPlaylist('track', track.id, track.title),
-    }, icon('plus', 11)),
-  );
-}
+/* ---------------------------------------------------------------- series */
 
-/* ----------------------------------------------------------- track index */
-
-async function viewTracks() {
-  const search = h('input', { type: 'search', placeholder: 'chercher un titre, un artiste…', 'aria-label': 'Recherche' });
-  const list = h('div', { class: 'tracks' });
-
-  const load = async (q = '') => {
-    const { tracks } = await api.get(`/api/tracks${qs({ q })}`);
-    clear(list);
-    if (!tracks.length) {
-      list.append(h('div', { class: 'empty', text: 'Aucun titre en ligne pour l’instant.' }));
-      return;
-    }
-    tracks.forEach((track, i) => list.append(trackRow(track, i + 1, { tracks })));
-    syncPlayingRows();
-  };
-
-  let timer = null;
-  search.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => load(search.value.trim()), 220);
-  });
+async function viewSeriesIndex() {
+  const { series } = await api.get('/api/series');
 
   render(main(),
     h('div', { class: 'wrap page' },
       h('div', { class: 'page__head' },
-        h('span', { class: 'label', text: 'Discothèque' }),
-        h('h1', { text: 'Les titres' }),
+        h('span', { class: 'label', text: 'Collections' }),
+        h('h1', { text: 'Séries' }),
+        h('p', { class: 'muted', style: { marginTop: '14px', maxWidth: '52ch' },
+          text: 'Des pièces qui se suivent : feuilletons, enquêtes en plusieurs volets, carnets.' }),
       ),
-      h('section', { class: 'filters' }, h('div', { class: 'search' }, icon('search', 13), search)),
-      list,
+      series.length
+        ? h('div', { class: 'index' }, ...series.map((s, i) => seriesRow(s, i + 1)))
+        : h('div', { class: 'empty', text: 'Aucune série pour l’instant.' }),
+    ),
+  );
+}
+
+function seriesRow(series, position) {
+  return h('div', {
+    class: 'row', onclick: () => navigate(`/serie/${series.slug}`),
+  },
+    h('span', { class: 'row__num', text: String(position).padStart(2, '0') }),
+    h('div', { class: 'row__main' },
+      h('div', { class: 'row__name', text: series.title }),
+      h('div', { class: 'row__sub', text: series.tagline || series.authors || '—' }),
+    ),
+    h('span', { class: 'row__genre', text: series.authors || '' }),
+    h('span', { class: 'row__kind', text: `${series.episode_count} épisode${series.episode_count > 1 ? 's' : ''}` }),
+    h('span', { class: 'row__score tnum', text: series.total_duration ? fmtTime(series.total_duration) : '' }),
+    h('span', {}),
+  );
+}
+
+async function viewSeries(slug) {
+  const { series, episodes } = await api.get(`/api/series/${slug}`);
+
+  const follow = h('button', {
+    class: `btn ${series.following ? 'btn--ghost' : ''}`, type: 'button',
+    text: series.following ? 'Suivie' : 'Suivre',
+    onclick: async () => {
+      if (!requireAccount()) return;
+      const next = !follow.classList.contains('btn--ghost');
+      try {
+        await (next ? api.put(`/api/series/${series.id}/follow`) : api.del(`/api/series/${series.id}/follow`));
+        follow.classList.toggle('btn--ghost', next);
+        follow.textContent = next ? 'Suivie' : 'Suivre';
+      } catch (err) { toast(err.message, 'error'); }
+    },
+  });
+
+  render(main(),
+    h('div', { class: 'wrap' },
+      h('div', { class: 'station' },
+        h('div', {},
+          h('a', { href: '/series', 'data-link': '', class: 'label', text: '← les séries' }),
+          h('h1', { text: series.title }),
+          series.tagline ? h('p', { class: 'station__tagline', text: series.tagline }) : null,
+
+          h('div', { class: 'hero__meta', style: { margin: '0 0 26px' } },
+            series.authors ? h('span', { class: 'label', text: series.authors }) : null,
+            h('span', { class: 'label', text: `${series.episode_count} épisode${series.episode_count > 1 ? 's' : ''}` }),
+            series.total_duration ? h('span', { class: 'label', text: `${fmtTime(series.total_duration)} en tout` }) : null,
+          ),
+
+          h('div', { class: 'station__actions' },
+            h('button', {
+              class: 'btn btn--solid', type: 'button', onclick: () => episodes.length && player.play(episodes, 0),
+            }, icon('play', 12), 'Écouter la série'),
+            follow,
+            h('button', {
+              class: 'btn btn--ghost', type: 'button', text: 'Ajouter à une playlist',
+              onclick: () => addToPlaylist({ series_id: series.id }, series.title),
+            }),
+          ),
+
+          series.description
+            ? h('div', { class: 'prose' }, ...series.description.split(/\n{2,}/).map((p) => h('p', { text: p })))
+            : null,
+
+          h('h2', { class: 'label', style: { marginTop: '44px' }, text: 'Épisodes' }),
+          episodes.length
+            ? h('div', { class: 'index' }, ...episodes.map((e, i) => episodeRow(e, e.number || i + 1, episodes, { hideSeries: true })))
+            : h('div', { class: 'empty', text: 'Aucun épisode publié pour l’instant.' }),
+        ),
+
+        h('aside', {},
+          series.cover_url
+            ? h('img', { class: 'cover', src: series.cover_url, alt: `Illustration de ${series.title}` })
+            : h('div', { class: 'cover cover--none', text: 'série' }),
+          h('dl', { class: 'deflist' },
+            def('Épisodes', String(series.episode_count)),
+            def('Durée totale', series.total_duration ? fmtTime(series.total_duration) : '—'),
+            def('Abonnés', String(series.follower_count)),
+          ),
+        ),
+      ),
     ),
   );
 
-  await load();
+  syncPlayingRows();
 }
 
 /* ------------------------------------------------------------- playlists */
@@ -465,8 +553,7 @@ async function viewPlaylists() {
         state.user
           ? frag(
               h('button', {
-                class: 'btn btn--solid', type: 'button', style: { marginBottom: '18px' },
-                onclick: () => newPlaylistDialog(),
+                class: 'btn btn--solid', type: 'button', style: { marginBottom: '18px' }, onclick: newPlaylistDialog,
               }, icon('plus', 12), 'Nouvelle playlist'),
               mine.playlists.length
                 ? frag(...mine.playlists.map(playlistRow))
@@ -486,13 +573,17 @@ async function viewPlaylists() {
 }
 
 function playlistRow(pl) {
+  const bits = [
+    `${pl.item_count} pièce${pl.item_count > 1 ? 's' : ''}`,
+    pl.total_duration ? fmtTime(pl.total_duration) : null,
+    pl.owner,
+    pl.is_public ? 'publique' : 'privée',
+  ].filter(Boolean);
+
   return h('div', { class: 'list-row' },
     h('div', { class: 'list-row__main' },
       h('a', { class: 'list-row__title', href: `/playlist/${pl.id}`, 'data-link': '', text: pl.name }),
-      h('div', {
-        class: 'list-row__sub',
-        text: `${pl.item_count} élément${pl.item_count > 1 ? 's' : ''} · ${pl.owner} · ${pl.is_public ? 'publique' : 'privée'}`,
-      }),
+      h('div', { class: 'list-row__sub', text: bits.join(' · ') }),
     ),
     link(`/playlist/${pl.id}`, 'Ouvrir', 'btn btn--ghost btn--sm'),
   );
@@ -504,7 +595,7 @@ function newPlaylistDialog() {
     const description = h('textarea', { class: 'textarea', maxlength: '400' });
     const isPublic = h('input', { type: 'checkbox' });
 
-    const form = h('form', { class: 'form' },
+    const form = h('form', {},
       h('label', { class: 'field' }, h('span', { class: 'label', text: 'Nom' }), name),
       h('label', { class: 'field' }, h('span', { class: 'label', text: 'Description' }), description),
       h('label', { class: 'checkbox' }, isPublic, 'Rendre publique'),
@@ -531,47 +622,32 @@ function newPlaylistDialog() {
 
 async function viewPlaylist(id) {
   const { playlist, items } = await api.get(`/api/playlists/${id}`);
+  const list = h('div', { class: 'index' });
 
-  const list = h('div', { class: 'tracks' });
   const paintItems = (rows) => {
     clear(list);
     if (!rows.length) {
-      list.append(h('div', { class: 'empty', text: 'Playlist vide. Ajoutez des stations ou des titres depuis la grille.' }));
+      list.append(h('div', { class: 'empty', text: 'Playlist vide. Ajoutez des pièces depuis le catalogue.' }));
       return;
     }
 
+    const queue = rows.map((r) => r.episode);
     rows.forEach((item, i) => {
-      const isTrack = item.kind === 'track';
-      const title = isTrack ? item.track.title : item.station.name;
-      const sub = isTrack
-        ? [item.track.artist, item.track.album].filter(Boolean).join(' · ') || '—'
-        : `Station · ${item.station.genre || 'sans genre'}`;
-
-      list.append(h('div', {
-        class: 'track', draggable: playlist.is_mine ? 'true' : null, dataset: { id: item.item_id },
-      },
-        h('button', {
-          class: 'track__num', type: 'button', style: { border: 0, background: 'none', cursor: 'pointer' },
-          'aria-label': `Écouter ${title}`,
-          onclick: () => playFrom(rows, i),
-        }, String(i + 1).padStart(2, '0')),
-        h('div', { style: { minWidth: 0 } },
-          isTrack
-            ? h('div', { class: 'track__title', text: title })
-            : h('a', { class: 'track__title', href: `/station/${item.station.slug}`, 'data-link': '', text: title }),
-          h('div', { class: 'track__artist', text: sub }),
-        ),
-        h('span', { class: 'track__time', text: isTrack && item.track.duration ? fmtTime(item.track.duration) : '' }),
-        playlist.is_mine
-          ? h('button', {
-              class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': 'Retirer',
-              onclick: async () => {
-                const data = await api.del(`/api/playlists/${id}/items/${item.item_id}`);
-                paintItems(data.items);
-              },
-            }, icon('close', 11))
-          : null,
-      ));
+      const row = episodeRow(item.episode, i + 1, queue);
+      if (playlist.is_mine) {
+        row.classList.add('row--editable');
+        row.setAttribute('draggable', 'true');
+        row.dataset.id = item.item_id;
+        row.append(h('button', {
+          class: 'row__play', type: 'button', 'aria-label': 'Retirer de la playlist',
+          onclick: async (e) => {
+            e.stopPropagation();
+            const data = await api.del(`/api/playlists/${id}/items/${item.item_id}`);
+            paintItems(data.items);
+          },
+        }, icon('close', 11)));
+      }
+      list.append(row);
     });
 
     if (playlist.is_mine) {
@@ -580,17 +656,7 @@ async function viewPlaylist(id) {
         catch (err) { toast(err.message, 'error'); }
       });
     }
-  };
-
-  const playFrom = async (rows, index) => {
-    const item = rows[index];
-    if (item.kind === 'station') {
-      const data = await api.get(`/api/stations/${item.station.slug}`);
-      return player.playStation(data.station, data.tracks);
-    }
-    const tracks = rows.filter((r) => r.kind === 'track').map((r) => r.track);
-    const position = tracks.findIndex((t) => t.id === item.track.id);
-    player.playTracks(tracks, Math.max(position, 0));
+    syncPlayingRows();
   };
 
   render(main(),
@@ -598,16 +664,18 @@ async function viewPlaylist(id) {
       h('div', { class: 'page__head' },
         h('a', { href: '/playlists', 'data-link': '', class: 'label', text: '← playlists' }),
         h('h1', { text: playlist.name }),
-        h('p', { class: 'muted', style: { marginTop: '12px' } },
-          `${playlist.item_count} élément${playlist.item_count > 1 ? 's' : ''} · par ${playlist.owner} · `,
-          playlist.is_public ? 'publique' : 'privée',
-        ),
+        h('p', { class: 'muted', style: { marginTop: '12px' },
+          text: [`${playlist.item_count} pièce${playlist.item_count > 1 ? 's' : ''}`,
+                 playlist.total_duration ? fmtTime(playlist.total_duration) : null,
+                 `par ${playlist.owner}`,
+                 playlist.is_public ? 'publique' : 'privée'].filter(Boolean).join(' · ') }),
         playlist.description ? h('p', { class: 'muted', style: { maxWidth: '60ch' }, text: playlist.description }) : null,
       ),
 
       h('div', { class: 'station__actions' },
         h('button', {
-          class: 'btn btn--solid', type: 'button', onclick: () => items.length && playFrom(items, 0),
+          class: 'btn btn--solid', type: 'button',
+          onclick: () => items.length && player.play(items.map((i) => i.episode), 0),
         }, icon('play', 12), 'Tout écouter'),
 
         playlist.is_mine
@@ -664,9 +732,9 @@ function editPlaylistDialog(playlist) {
   });
 }
 
-async function addToPlaylist(kind, refId, label) {
+/** `payload` is either { episode_id } or { series_id } — a whole series can be added at once. */
+async function addToPlaylist(payload, label) {
   if (!requireAccount()) return;
-
   const { playlists } = await api.get('/api/playlists');
 
   modal(`Ajouter « ${label} »`, (close) => {
@@ -674,22 +742,20 @@ async function addToPlaylist(kind, refId, label) {
 
     const add = async (playlistId) => {
       try {
-        await api.post(`/api/playlists/${playlistId}/items`, { kind, ref_id: refId });
+        const { added } = await api.post(`/api/playlists/${playlistId}/items`, payload);
         close();
-        toast('Ajouté à la playlist.');
+        toast(added > 1 ? `${added} pièces ajoutées.` : 'Ajouté à la playlist.');
       } catch (err) { toast(err.message, 'error'); }
     };
 
     box.append(
       playlists.length
         ? frag(...playlists.map((pl) => h('button', {
-            class: 'list-row', type: 'button',
-            style: { width: '100%', textAlign: 'left', background: 'none', border: 0, borderBottom: '1px solid var(--rule-soft)', cursor: 'pointer' },
-            onclick: () => add(pl.id),
+            class: 'pick-row', type: 'button', onclick: () => add(pl.id),
           },
             h('div', { class: 'list-row__main' },
               h('div', { class: 'list-row__title', text: pl.name }),
-              h('div', { class: 'list-row__sub', text: `${pl.item_count} élément${pl.item_count > 1 ? 's' : ''}` }),
+              h('div', { class: 'list-row__sub', text: `${pl.item_count} pièce${pl.item_count > 1 ? 's' : ''}` }),
             ),
             icon('plus', 12),
           )))
@@ -719,15 +785,17 @@ async function addToPlaylist(kind, refId, label) {
   });
 }
 
-/* ---------------------------------------------------------- account view */
+/* ---------------------------------------------------------------- compte */
 
 async function viewAccount() {
   if (!state.user) return navigate('/connexion', { replace: true });
 
-  const [{ stations }, { history }, { playlists }] = await Promise.all([
-    api.get('/api/favorites'),
-    api.get('/api/history'),
+  const [bookmarks, follows, playlists, history, started] = await Promise.all([
+    api.get('/api/bookmarks'),
+    api.get('/api/follows'),
     api.get('/api/playlists'),
+    api.get('/api/history'),
+    api.get('/api/continue'),
   ]);
 
   const bio = h('textarea', { class: 'textarea', maxlength: '280' }, state.user.bio);
@@ -765,7 +833,8 @@ async function viewAccount() {
       h('div', { class: 'page__head' },
         h('span', { class: 'label', text: state.user.role === 'admin' ? 'Compte · studio' : 'Compte' }),
         h('h1', { text: state.user.username }),
-        h('p', { class: 'muted mono', style: { marginTop: '12px' }, text: `${state.user.email} · inscrit le ${fmtDate(state.user.created_at)}` }),
+        h('p', { class: 'muted mono', style: { marginTop: '12px' },
+          text: `${state.user.email} · inscrit le ${fmtDate(state.user.created_at)}` }),
       ),
 
       h('div', { class: 'station__actions' },
@@ -775,34 +844,51 @@ async function viewAccount() {
           onclick: async () => {
             await api.post('/api/auth/logout');
             state.user = null;
+            player.setUser(null);
             navigate('/');
           },
         }),
       ),
 
       h('div', { class: 'cards cards--3', style: { marginTop: '10px' } },
-        h('div', {}, h('span', { class: 'label', text: 'Stations suivies' }), h('b', { text: String(stations.length) })),
-        h('div', {}, h('span', { class: 'label', text: 'Playlists' }), h('b', { text: String(playlists.length) })),
-        h('div', {}, h('span', { class: 'label', text: 'Écoutes' }), h('b', { text: String(history.length) })),
+        h('div', {}, h('span', { class: 'label', text: 'À écouter' }), h('b', { text: String(bookmarks.episodes.length) })),
+        h('div', {}, h('span', { class: 'label', text: 'Séries suivies' }), h('b', { text: String(follows.series.length) })),
+        h('div', {}, h('span', { class: 'label', text: 'Playlists' }), h('b', { text: String(playlists.playlists.length) })),
+      ),
+
+      started.episodes.length
+        ? h('section', { class: 'section' },
+            h('h2', { text: 'En cours' }),
+            h('div', { class: 'index' }, ...started.episodes.map((e, i) => episodeRow(e, i + 1, started.episodes))),
+          )
+        : null,
+
+      h('section', { class: 'section' },
+        h('h2', { text: 'À écouter' }),
+        bookmarks.episodes.length
+          ? h('div', { class: 'index' }, ...bookmarks.episodes.map((e, i) => episodeRow(e, i + 1, bookmarks.episodes)))
+          : h('div', { class: 'empty', text: 'Rien de mis de côté.' }),
       ),
 
       h('section', { class: 'section' },
-        h('h2', { text: 'Stations suivies' }),
-        stations.length
-          ? h('div', { class: 'index' }, ...stations.map((s, i) => stationRow(s, i + 1)))
-          : h('div', { class: 'empty', text: 'Aucune station suivie.' }),
+        h('h2', { text: 'Séries suivies' }),
+        follows.series.length
+          ? h('div', { class: 'index' }, ...follows.series.map((s, i) => seriesRow(s, i + 1)))
+          : h('div', { class: 'empty', text: 'Aucune série suivie.' }),
       ),
 
       h('section', { class: 'section' },
         h('h2', { text: 'Dernières écoutes' }),
-        history.length
-          ? h('div', { class: 'tracks' }, ...history.map((row) => h('div', { class: 'track', style: { gridTemplateColumns: '1fr auto' } },
-              h('div', {},
-                h('div', { class: 'track__title', text: row.track_title || row.name || 'Élément supprimé' }),
-                h('div', { class: 'track__artist', text: row.track_artist || row.genre || '' }),
-              ),
-              h('span', { class: 'track__time', text: fmtDateTime(row.played_at) }),
-            )))
+        history.history.length
+          ? h('div', { class: 'tracks' }, ...history.history.map((row) => h('div', {
+              class: 'track', style: { gridTemplateColumns: '1fr auto' },
+            },
+            h('div', {},
+              h('a', { class: 'track__title', href: `/piece/${row.slug}`, 'data-link': '', text: row.title }),
+              h('div', { class: 'track__artist', text: row.series_title || '' }),
+            ),
+            h('span', { class: 'track__time', text: fmtDateTime(row.played_at) }),
+          )))
           : h('div', { class: 'empty', text: 'Rien encore écouté.' }),
       ),
 
@@ -810,9 +896,11 @@ async function viewAccount() {
       h('section', { class: 'section' }, h('h2', { text: 'Sécurité' }), pwForm),
     ),
   );
+
+  syncPlayingRows();
 }
 
-/* ------------------------------------------------------------- auth view */
+/* ------------------------------------------------------------------ auth */
 
 function viewAuth(mode) {
   if (state.user) return navigate('/compte', { replace: true });
@@ -836,7 +924,10 @@ function viewAuth(mode) {
           h('label', { class: 'field' }, h('span', { class: 'label', text: 'Pseudo' }), username),
         ),
     h('label', { class: 'field' }, h('span', { class: 'label', text: 'Mot de passe' }), password),
-    h('button', { class: 'btn btn--solid', type: 'submit', style: { width: '100%', justifyContent: 'center' }, text: isLogin ? 'Entrer' : 'Créer le compte' }),
+    h('button', {
+      class: 'btn btn--solid', type: 'submit', style: { width: '100%', justifyContent: 'center' },
+      text: isLogin ? 'Entrer' : 'Créer le compte',
+    }),
   );
 
   form.addEventListener('submit', async (e) => {
@@ -848,6 +939,7 @@ function viewAuth(mode) {
         : await api.post('/api/auth/register', { email: email.value, username: username.value, password: password.value });
 
       state.user = user;
+      player.setUser(user);
       toast(`Bonjour ${user.username}.`);
       navigate('/');
     } catch (err) {
@@ -867,7 +959,8 @@ function viewAuth(mode) {
           isLogin ? 'Pas encore de compte ? ' : 'Déjà inscrit ? ',
           link(isLogin ? '/inscription' : '/connexion', isLogin ? 'Créer un compte' : 'Se connecter'),
         ),
-        h('p', { class: 'auth__alt muted', text: 'Un compte sert à noter les stations, les suivre et monter des playlists. Rien de plus.' }),
+        h('p', { class: 'auth__alt muted',
+          text: 'Un compte sert à reprendre vos écoutes d’un appareil à l’autre, noter les pièces et monter des playlists. Rien de plus.' }),
       ),
     ),
   );
@@ -885,6 +978,6 @@ function requireAccount() {
 player.subscribe((_p, isTick) => { if (!isTick) syncPlayingRows(); });
 
 api.get('/api/auth/me')
-  .then(({ user }) => { state.user = user; })
+  .then(({ user }) => { state.user = user; player.setUser(user); })
   .catch(() => {})
   .finally(() => { paintNav(); route(); });

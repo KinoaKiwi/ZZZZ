@@ -9,12 +9,23 @@ export function slugify(input, fallback = 'radio') {
   return base || fallback;
 }
 
-export function uniqueSlug(db, wanted, ignoreId = 0) {
-  const stmt = db.prepare('SELECT id FROM stations WHERE slug = ? AND id <> ?');
+export function uniqueSlug(db, table, wanted, ignoreId = 0) {
+  const stmt = db.prepare(`SELECT id FROM ${table} WHERE slug = ? AND id <> ?`);
   let slug = wanted;
   let n = 2;
   while (stmt.get(slug, ignoreId)) slug = `${wanted}-${n++}`;
   return slug;
+}
+
+/** Tags travel as "a,b,c" so a filter can match a whole tag, never a fragment. */
+export function normalizeTags(input) {
+  const source = Array.isArray(input) ? input : String(input ?? '').split(',');
+  const seen = [];
+  for (const raw of source) {
+    const tag = slugify(raw, '');
+    if (tag && !seen.includes(tag)) seen.push(tag);
+  }
+  return seen.slice(0, 12).join(',');
 }
 
 export const str = (v, max = 500) => String(v ?? '').trim().slice(0, max);
@@ -23,16 +34,6 @@ export const bool = (v) => (v === true || v === 1 || v === '1' || v === 'true' ?
 
 export function isEmail(v) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || ''));
-}
-
-/** Only http(s) stream URLs are accepted, so a station cannot point at file:// or javascript:. */
-export function isStreamUrl(v) {
-  try {
-    const u = new URL(String(v));
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
 }
 
 export function asInt(v, fallback = 0) {

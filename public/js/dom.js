@@ -64,6 +64,17 @@ const SHAPES = {
   ] },
   drag:    { d: 'M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01', cap: 'round', width: 2 },
   search:  { d: 'M7.2 11.4a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4ZM10.4 10.4 13.5 13.5' },
+  // Skip buttons: an open loop with an arrow head, and the seconds set inside it.
+  back15:  { parts: [
+    { d: 'M12.6 8A4.6 4.6 0 1 1 8 3.4H10.2' },
+    { d: 'M8.9 1.5 6.9 3.4l2 1.9' },
+    { text: '15' },
+  ] },
+  fwd15:   { parts: [
+    { d: 'M3.4 8A4.6 4.6 0 1 0 8 3.4H5.8' },
+    { d: 'M7.1 1.5 9.1 3.4l-2 1.9' },
+    { text: '15' },
+  ] },
 };
 
 export function icon(name, size = 16) {
@@ -76,6 +87,18 @@ export function icon(name, size = 16) {
   svg.setAttribute('focusable', 'false');
 
   for (const part of shape.parts ?? [shape]) {
+    if (part.text !== undefined) {
+      const label = document.createElementNS(SVG, 'text');
+      label.setAttribute('x', '8');
+      label.setAttribute('y', '10.6');
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', part.size ?? '6.4');
+      label.setAttribute('font-family', 'ui-monospace, monospace');
+      label.setAttribute('fill', 'currentColor');
+      label.textContent = part.text;
+      svg.append(label);
+      continue;
+    }
     const path = document.createElementNS(SVG, 'path');
     path.setAttribute('d', part.d);
     if (part.fill) {

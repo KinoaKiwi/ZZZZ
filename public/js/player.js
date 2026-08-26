@@ -2,91 +2,117 @@ import { h, render, clear, icon, fmtTime, toast } from './dom.js';
 import { api } from './api.js';
 
 const VOLUME_KEY = 'onde.volume';
+const SPEED_KEY = 'onde.speed';
+const PROGRESS_KEY = 'onde.progress';
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
+const SKIP = 15;
+
+/** Positions for signed-out listeners live in the browser only. */
+const localProgress = {
+  read() {
+    try { return JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? '{}'); } catch { return {}; }
+  },
+  get(id) { return this.read()[id] ?? 0; },
+  set(id, position) {
+    try {
+      const all = this.read();
+      if (position > 30) all[id] = Math.round(position);
+      else delete all[id];
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(all));
+    } catch { /* private mode */ }
+  },
+};
 
 /**
- * One <audio> for the whole app: navigating between views never interrupts playback.
- * A queue entry is either a live stream (kind 'live') or an uploaded file (kind 'file').
+ * One <audio> for the whole app, so moving between pages never cuts the sound.
+ * The queue holds episodes; each one is a finished piece, nothing is streamed live.
  */
 class Player {
   constructor() {
     this.audio = new Audio();
-    this.audio.preload = 'none';
-    this.audio.volume = Number(localStorage.getItem(VOLUME_KEY) ?? 0.85);
+    this.audio.preload = 'metadata';
+    this.audio.volume = Number(localStorage.getItem(VOLUME_KEY) ?? 0.9);
+    this.speed = Number(localStorage.getItem(SPEED_KEY) ?? 1);
+    this.audio.playbackRate = this.speed;
 
     this.queue = [];
     this.index = -1;
+    this.user = null;
     this.listeners = new Set();
     this.logged = new Set();
+    this.status = null;
+    this.lastSaved = 0;
+    this.resumeTo = 0;
 
     this.audio.addEventListener('play', () => this.emit());
-    this.audio.addEventListener('pause', () => this.emit());
+    this.audio.addEventListener('pause', () => { this.saveProgress(true); this.emit(); });
     this.audio.addEventListener('timeupdate', () => this.tick());
     this.audio.addEventListener('durationchange', () => this.emit());
-    this.audio.addEventListener('ended', () => this.next());
+    this.audio.addEventListener('ended', () => this.onEnded());
     this.audio.addEventListener('error', () => this.onError());
-    this.audio.addEventListener('waiting', () => this.setStatus('mise en mémoire…'));
+    this.audio.addEventListener('waiting', () => this.setStatus('chargement…'));
+    this.audio.addEventListener('loadedmetadata', () => this.applyResume());
     this.audio.addEventListener('playing', () => { this.setStatus(null); this.logPlay(); });
 
-    this.status = null;
     this.buildBar();
     this.bindKeys();
   }
 
+  setUser(user) { this.user = user; }
+
   /* -------------------------------------------------------------- playback */
 
   get current() { return this.queue[this.index] ?? null; }
-  get isLive() { return this.current?.kind === 'live'; }
   get playing() { return !this.audio.paused && this.index >= 0; }
 
-  load(queue, index = 0, autoplay = true) {
-    this.queue = queue;
-    this.index = queue.length ? Math.min(Math.max(index, 0), queue.length - 1) : -1;
-    this.start(autoplay);
+  /** `episodes` is the queue; playback starts at `index`, resuming where it stopped. */
+  play(episodes, index = 0) {
+    const list = Array.isArray(episodes) ? episodes : [episodes];
+    if (!list.length) return;
+    this.queue = list;
+    this.index = Math.min(Math.max(index, 0), list.length - 1);
+    this.start();
   }
 
+  /** Queue the rest of a series/playlist behind the one being played. */
   start(autoplay = true) {
-    const item = this.current;
-    if (!item) { this.audio.removeAttribute('src'); this.audio.load(); return this.emit(); }
+    const episode = this.current;
+    if (!episode) { this.audio.removeAttribute('src'); this.audio.load(); return this.emit(); }
 
-    this.audio.src = item.src;
-    this.audio.preload = 'auto';
-    this.setStatus('connexion…');
+    this.resumeTo = this.savedPosition(episode);
+    this.audio.src = episode.audio_url;
+    this.audio.playbackRate = this.speed;
+    this.setStatus('chargement…');
     if (autoplay) this.audio.play().catch(() => this.setStatus('appuyez sur lecture'));
     this.updateMediaSession();
     this.emit();
   }
 
-  playStation(station, tracks = []) {
-    if (station.kind === 'live') {
-      return this.load([{
-        kind: 'live',
-        src: station.stream_url,
-        title: station.name,
-        subtitle: station.genre || 'flux en direct',
-        stationId: station.id,
-        slug: station.slug,
-        cover: station.cover_url,
-      }]);
-    }
-
-    if (!tracks.length) return toast('Cette station n a pas encore de programme.', 'error');
-    this.load(tracks.map((t) => trackItem(t, station)), 0);
+  savedPosition(episode) {
+    const saved = this.user ? episode.progress?.position ?? 0 : localProgress.get(episode.id);
+    if (this.user && episode.progress?.completed) return 0;
+    // Never resume within a whisker of the end.
+    return saved > 30 && (!episode.duration || saved < episode.duration - 20) ? saved : 0;
   }
 
-  playTracks(tracks, index = 0, station = null) {
-    if (!tracks.length) return;
-    this.load(tracks.map((t) => trackItem(t, station)), index);
+  applyResume() {
+    if (this.resumeTo > 0) {
+      this.audio.currentTime = this.resumeTo;
+      this.resumeTo = 0;
+    }
+    this.audio.playbackRate = this.speed;
+    this.emit();
   }
 
   toggle() {
     if (!this.current) return;
-    if (this.audio.paused) {
-      // A live stream that has been paused is stale — reconnect instead of resuming.
-      if (this.isLive && this.audio.currentTime > 0) this.audio.src = this.current.src;
-      this.audio.play().catch(() => toast('Lecture refusée par le navigateur.', 'error'));
-    } else {
-      this.audio.pause();
-    }
+    if (this.audio.paused) this.audio.play().catch(() => toast('Lecture refusée par le navigateur.', 'error'));
+    else this.audio.pause();
+  }
+
+  skip(seconds) {
+    if (!this.current || !Number.isFinite(this.audio.duration)) return;
+    this.audio.currentTime = Math.max(0, Math.min(this.audio.duration, this.audio.currentTime + seconds));
   }
 
   next() {
@@ -95,7 +121,7 @@ class Player {
   }
 
   prev() {
-    if (this.audio.currentTime > 4 && !this.isLive) { this.audio.currentTime = 0; return; }
+    if (this.audio.currentTime > 5) { this.audio.currentTime = 0; return; }
     if (this.index > 0) { this.index -= 1; this.start(); }
   }
 
@@ -106,9 +132,8 @@ class Player {
   }
 
   seekRatio(ratio) {
-    const duration = this.audio.duration;
-    if (!Number.isFinite(duration) || this.isLive) return;
-    this.audio.currentTime = Math.max(0, Math.min(1, ratio)) * duration;
+    if (!Number.isFinite(this.audio.duration)) return;
+    this.audio.currentTime = Math.max(0, Math.min(1, ratio)) * this.audio.duration;
   }
 
   setVolume(value) {
@@ -116,38 +141,75 @@ class Player {
     localStorage.setItem(VOLUME_KEY, String(this.audio.volume));
   }
 
+  cycleSpeed() {
+    this.speed = SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length] ?? 1;
+    this.audio.playbackRate = this.speed;
+    localStorage.setItem(SPEED_KEY, String(this.speed));
+    this.emit();
+  }
+
   setStatus(text) { this.status = text; this.emit(); }
+
+  onEnded() {
+    this.saveProgress(true, true);
+    this.next();
+  }
 
   onError() {
     if (!this.current) return;
-    this.setStatus('flux indisponible');
+    this.setStatus('fichier illisible');
     toast(`Impossible de lire « ${this.current.title} ».`, 'error');
   }
 
+  /* -------------------------------------------------------------- progress */
+
+  saveProgress(force = false, completed = false) {
+    const episode = this.current;
+    if (!episode) return;
+
+    const position = completed ? 0 : this.audio.currentTime;
+    if (!completed && !force && Math.abs(position - this.lastSaved) < 10) return;
+    this.lastSaved = position;
+
+    if (episode.progress) Object.assign(episode.progress, { position, completed });
+    else episode.progress = { position, completed };
+
+    if (this.user) {
+      api.put(`/api/episodes/${episode.id}/progress`, { position, completed }).catch(() => {});
+    } else {
+      localProgress.set(episode.id, completed ? 0 : position);
+    }
+  }
+
   logPlay() {
-    const item = this.current;
-    if (!item) return;
-    const key = `${item.stationId ?? ''}:${item.trackId ?? ''}:${this.index}`;
-    if (this.logged.has(key)) return;
-    this.logged.add(key);
-    api.post('/api/plays', { station_id: item.stationId ?? null, track_id: item.trackId ?? null }).catch(() => {});
+    const episode = this.current;
+    if (!episode || this.logged.has(episode.id)) return;
+    this.logged.add(episode.id);
+    api.post('/api/plays', { episode_id: episode.id }).catch(() => {});
   }
 
   updateMediaSession() {
     if (!('mediaSession' in navigator)) return;
-    const item = this.current;
-    if (!item) return;
+    const episode = this.current;
+    if (!episode) return;
 
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: item.title,
-      artist: item.subtitle || 'Onde',
-      album: item.stationName || 'Onde',
-      artwork: item.cover ? [{ src: item.cover, sizes: '512x512' }] : [],
+      title: episode.title,
+      artist: episode.authors || 'Onde',
+      album: episode.series?.title ?? 'Onde',
+      artwork: episode.cover_url ? [{ src: episode.cover_url, sizes: '512x512' }] : [],
     });
-    navigator.mediaSession.setActionHandler('play', () => this.toggle());
-    navigator.mediaSession.setActionHandler('pause', () => this.toggle());
-    navigator.mediaSession.setActionHandler('nexttrack', () => this.next());
-    navigator.mediaSession.setActionHandler('previoustrack', () => this.prev());
+    const handlers = {
+      play: () => this.toggle(),
+      pause: () => this.toggle(),
+      nexttrack: () => this.next(),
+      previoustrack: () => this.prev(),
+      seekbackward: () => this.skip(-SKIP),
+      seekforward: () => this.skip(SKIP),
+    };
+    for (const [action, handler] of Object.entries(handlers)) {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* unsupported action */ }
+    }
   }
 
   /* ---------------------------------------------------------------- events */
@@ -157,6 +219,7 @@ class Player {
 
   tick() {
     this.paintTime();
+    this.saveProgress();
     this.listeners.forEach((fn) => fn(this, true));
   }
 
@@ -166,12 +229,20 @@ class Player {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
 
       if (e.code === 'Space') { e.preventDefault(); this.toggle(); }
-      else if (e.key === 'ArrowRight' && e.altKey) this.next();
-      else if (e.key === 'ArrowLeft' && e.altKey) this.prev();
+      else if (e.key === 'ArrowRight') { e.preventDefault(); this.skip(SKIP); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); this.skip(-SKIP); }
+      else if (e.key === 'j') this.skip(-30);
+      else if (e.key === 'l') this.skip(30);
+    });
+
+    // A closing tab should not lose the last minutes of listening.
+    addEventListener('pagehide', () => this.saveProgress(true));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.saveProgress(true);
     });
   }
 
-  /* ------------------------------------------------------------------- UI */
+  /* -------------------------------------------------------------------- UI */
 
   buildBar() {
     this.el = {};
@@ -187,16 +258,25 @@ class Player {
       },
     });
 
+    this.el.back = h('button', {
+      class: 'player__skip', type: 'button', 'aria-label': 'Reculer de 15 secondes', onclick: () => this.skip(-SKIP),
+    }, icon('back15', 19));
+
     this.el.toggle = h('button', {
       class: 'player__toggle', type: 'button', 'aria-label': 'Lecture', onclick: () => this.toggle(),
     }, icon('play'));
 
-    this.el.prev = h('button', { class: 'player__skip', type: 'button', 'aria-label': 'Précédent', onclick: () => this.prev() }, icon('prev', 14));
-    this.el.next = h('button', { class: 'player__skip', type: 'button', 'aria-label': 'Suivant', onclick: () => this.next() }, icon('next', 14));
+    this.el.fwd = h('button', {
+      class: 'player__skip', type: 'button', 'aria-label': 'Avancer de 15 secondes', onclick: () => this.skip(SKIP),
+    }, icon('fwd15', 19));
 
-    this.el.title = h('div', { class: 'player__title', text: 'Aucune station' });
+    this.el.title = h('div', { class: 'player__title', text: 'Rien en écoute' });
     this.el.sub = h('div', { class: 'player__sub' });
     this.el.time = h('div', { class: 'player__time tnum', text: '--:-- / --:--' });
+
+    this.el.speed = h('button', {
+      class: 'player__rate', type: 'button', 'aria-label': 'Vitesse de lecture', text: '1×', onclick: () => this.cycleSpeed(),
+    });
 
     this.el.volume = h('input', {
       type: 'range', min: '0', max: '1', step: '0.01', value: String(this.audio.volume),
@@ -204,27 +284,25 @@ class Player {
     });
 
     this.el.queueBtn = h('button', {
-      class: 'icon-btn', type: 'button', 'aria-label': 'File de lecture', onclick: () => this.toggleQueue(),
+      class: 'icon-btn', type: 'button', 'aria-label': 'File d’écoute', onclick: () => this.toggleQueue(),
     }, icon('list', 14));
 
-    this.el.queue = h('aside', { class: 'queue', hidden: true, 'aria-label': 'File de lecture' });
+    this.el.queue = h('aside', { class: 'queue', hidden: true, 'aria-label': 'File d’écoute' });
 
     this.el.bar = h('div', { class: 'player is-idle' },
       this.el.line,
       this.el.seek,
       h('div', { class: 'wrap player__in' },
-        this.el.toggle,
-        h('div', { style: { display: 'flex', gap: '2px' } }, this.el.prev, this.el.next),
+        h('div', { class: 'player__transport' }, this.el.back, this.el.toggle, this.el.fwd),
         h('div', { class: 'player__now' }, this.el.title, this.el.sub),
         this.el.time,
+        this.el.speed,
         h('div', { class: 'player__vol' }, this.el.volume),
         this.el.queueBtn,
       ),
     );
 
     const mount = () => {
-      // Keeping the element in the document makes it visible to the browser's
-      // own media controls (and to anything inspecting the page).
       this.audio.hidden = true;
       document.body.append(this.audio, this.el.queue, this.el.bar);
       this.paint();
@@ -234,36 +312,33 @@ class Player {
   }
 
   toggleQueue() {
-    const hidden = this.el.queue.hasAttribute('hidden');
-    if (hidden) { this.paintQueue(); this.el.queue.removeAttribute('hidden'); }
-    else this.el.queue.setAttribute('hidden', '');
+    if (this.el.queue.hasAttribute('hidden')) {
+      this.paintQueue();
+      this.el.queue.removeAttribute('hidden');
+    } else {
+      this.el.queue.setAttribute('hidden', '');
+    }
   }
 
   paint() {
-    const item = this.current;
-    const bar = this.el.bar;
-
-    bar.classList.toggle('is-idle', !item);
-    bar.classList.toggle('is-live', Boolean(item && this.isLive));
+    const episode = this.current;
+    this.el.bar.classList.toggle('is-idle', !episode);
 
     render(this.el.toggle, icon(this.playing ? 'pause' : 'play'));
     this.el.toggle.setAttribute('aria-label', this.playing ? 'Pause' : 'Lecture');
-    this.el.toggle.disabled = !item;
-    this.el.prev.disabled = this.index <= 0;
-    this.el.next.disabled = this.index < 0 || this.index >= this.queue.length - 1;
+    this.el.toggle.disabled = !episode;
+    this.el.back.disabled = !episode;
+    this.el.fwd.disabled = !episode;
+    this.el.speed.textContent = `${String(this.speed).replace('.', ',')}×`;
 
-    this.el.title.textContent = item ? item.title : 'Aucune station';
+    this.el.title.textContent = episode ? episode.title : 'Rien en écoute';
 
     clear(this.el.sub);
-    if (!item) {
-      this.el.sub.append('choisissez une fréquence dans la grille');
-    } else if (this.isLive) {
-      this.el.sub.append(
-        h('span', { class: 'onair' }, h('i', { class: 'dot' }), 'En direct'),
-        this.status ?? item.subtitle,
-      );
+    if (!episode) {
+      this.el.sub.append('choisissez une pièce dans le catalogue');
     } else {
-      this.el.sub.append(this.status ?? [item.subtitle, item.stationName].filter(Boolean).join(' — '));
+      const parts = [episode.series?.title, episode.authors].filter(Boolean).join(' · ');
+      this.el.sub.append(this.status ?? parts ?? '');
     }
 
     this.paintTime();
@@ -273,12 +348,14 @@ class Player {
   paintTime() {
     const { currentTime, duration } = this.audio;
 
-    if (this.isLive || !Number.isFinite(duration)) {
-      this.el.time.textContent = this.index < 0 ? '--:--' : fmtTime(currentTime);
+    if (this.index < 0) {
+      this.el.time.textContent = '--:-- / --:--';
+      this.el.line.style.width = '0';
       return;
     }
-    this.el.time.textContent = `${fmtTime(currentTime)} / ${fmtTime(duration)}`;
-    this.el.line.style.width = duration ? `${(currentTime / duration) * 100}%` : '0';
+    const total = Number.isFinite(duration) ? duration : this.current?.duration ?? 0;
+    this.el.time.textContent = `${fmtTime(currentTime)} / ${total ? fmtTime(total) : '--:--'}`;
+    this.el.line.style.width = total ? `${Math.min(100, (currentTime / total) * 100)}%` : '0';
   }
 
   paintQueue() {
@@ -286,7 +363,7 @@ class Player {
     clear(list);
 
     list.append(h('header', { class: 'queue__head' },
-      h('span', { class: 'label', text: `File — ${this.queue.length} élément${this.queue.length > 1 ? 's' : ''}` }),
+      h('span', { class: 'label', text: `À suivre — ${this.queue.length} pièce${this.queue.length > 1 ? 's' : ''}` }),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fermer', onclick: () => this.toggleQueue() }, icon('close', 12)),
     ));
 
@@ -295,35 +372,20 @@ class Player {
       return;
     }
 
-    this.queue.forEach((item, i) => {
+    this.queue.forEach((episode, i) => {
       list.append(h('div', {
         class: `queue__item ${i === this.index ? 'is-current' : ''}`,
         onclick: () => this.jump(i),
       },
         h('span', { class: 'mono muted tnum', text: String(i + 1).padStart(2, '0') }),
         h('div', { style: { minWidth: 0 } },
-          h('div', { class: 'queue__title', text: item.title }),
-          h('div', { class: 'queue__sub', text: item.subtitle || '' }),
+          h('div', { class: 'queue__title', text: episode.title }),
+          h('div', { class: 'queue__sub', text: episode.series?.title ?? episode.authors ?? '' }),
         ),
-        h('span', { class: 'mono muted tnum', text: item.duration ? fmtTime(item.duration) : '' }),
+        h('span', { class: 'mono muted tnum', text: episode.duration ? fmtTime(episode.duration) : '' }),
       ));
     });
   }
-}
-
-function trackItem(track, station) {
-  return {
-    kind: 'file',
-    src: track.audio_url,
-    title: track.title,
-    subtitle: track.artist || 'artiste inconnu',
-    duration: track.duration,
-    trackId: track.id,
-    stationId: station?.id ?? null,
-    stationName: station?.name ?? null,
-    slug: station?.slug ?? null,
-    cover: track.cover_url ?? station?.cover_url ?? null,
-  };
 }
 
 export const player = new Player();
